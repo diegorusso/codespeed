@@ -4,6 +4,7 @@
 .DS_Store
 *.db
 sample_project/repos/*
+speed_python/repos/*
 override
 build
 dist
