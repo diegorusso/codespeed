@@ -552,8 +552,8 @@ def timeline(request):
     branch_list.sort()
 
     defaultbranch = ""
-    if defaultproject.default_branch in branch_list:
-        defaultbranch = defaultproject.default_branch
+    if settings.DEF_BRANCH in branch_list:
+        defaultbranch = settings.DEF_BRANCH
     if data.get('bran') in branch_list:
         defaultbranch = data.get('bran')
 
