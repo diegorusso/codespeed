@@ -91,12 +91,11 @@ def gethistoricaldata(request):
     else:
         env = env.first()
 
-    # Fetch Baseline data
+    # Fetch Baseline data, filter by executable
     baseline_exe = Executable.objects.get(
         name=settings.DEF_BASELINE['executable'])
     baseline_revs = Revision.objects.filter(
-        branch__project=baseline_exe.project,
-        tag=settings.DEF_BASELINE['revision']).order_by('-date')
+        branch__project=baseline_exe.project).order_by('-date')
     baseline_lastrev = baseline_revs[0]
     for rev in baseline_revs:
         baseline_results = Result.objects.filter(
@@ -115,15 +114,19 @@ def gethistoricaldata(request):
         name=default_exe.project.default_branch,
         project=default_exe.project)
 
-    # Fetch tagged revisions for default executable
+    # Fetch tagged revisions for executable
     default_taggedrevs = Revision.objects.filter(
             branch=default_branch
         ).exclude(tag="").order_by('date')
     default_results = {}
     for rev in default_taggedrevs:
         res = Result.objects.filter(
+<<<<<<< HEAD
             executable=default_exe,
             revision=rev, environment=env)
+=======
+            executable=default_exe, revision=rev, environment=env)
+>>>>>>> cbe5458... MAINT: more deeply embed DEFAULT_EXECUTABLE into historical data plots
         if not res:
             logger.info('no results for %s %s %s' % (str(default_exe), str(rev), str(env)))
             continue
@@ -133,8 +136,13 @@ def gethistoricaldata(request):
     revs = Revision.objects.filter(
         branch=default_branch).order_by('-date')[:100]
     default_lastrev = None
+<<<<<<< HEAD
     for rev in revs:
         default_lastrev = rev
+=======
+    for i in range(4):
+        default_lastrev = revs[i]
+>>>>>>> cbe5458... MAINT: more deeply embed DEFAULT_EXECUTABLE into historical data plots
         if default_lastrev.results.filter(executable=default_exe, environment=env):
             break
         default_lastrev = None
