@@ -108,7 +108,9 @@
             plotdata[0].push(relative_value);
             plotdata[1].push(1.0);
             labels.push(relative_value.toFixed(2));
-            trunk_geomean *= relative_value;
+            if (relative_value > 0) {
+                trunk_geomean *= relative_value;
+            }
         }
         trunk_geomean = Math.pow(trunk_geomean, 1/plotdata[0].length);
         var geofaster = 1/trunk_geomean;
