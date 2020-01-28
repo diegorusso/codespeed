@@ -122,7 +122,7 @@ def gethistoricaldata(request):
     default_results = {}
     for rev in default_taggedrevs:
         res = Result.objects.filter(
-            # executable=default_exe,
+            executable=default_exe,
             revision=rev, environment=env)
         if not res:
             logger.info('no results for %s %s %s' % (str(default_exe), str(rev), str(env)))
