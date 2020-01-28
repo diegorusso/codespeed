@@ -46,7 +46,7 @@ def get_default_environment(enviros, data, multi=False):
     if multi:
         return defaultenviros
     else:
-        return defaultenviros[0]
+        return [defaultenviros[0],]
 
 
 def getbaselineexecutables():

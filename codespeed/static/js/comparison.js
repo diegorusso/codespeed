@@ -394,10 +394,12 @@ function init(defaults) {
     $("#baseline").val(defaults.baseline);
     $("#direction").prop('checked', defaults.direction === "True");
 
+    /*
     var sel = $("input[name='executables']");
     $.each(defaults.executables, function(i, exe) {
         sel.filter("[value='" + exe + "']").prop('checked', true);
     });
+    */
 
     sel = $("input[name='benchmarks']");
     $.each(defaults.benchmarks, function(i, bench) {

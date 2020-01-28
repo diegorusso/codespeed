@@ -199,7 +199,7 @@ def comparison(request):
     enviros = Environment.objects.all()
     if not enviros:
         return no_environment_error(request)
-    checkedenviros = get_default_environment(enviros, data, multi=True)
+    checkedenviros = get_default_environment(enviros, data)
 
     if not len(Project.objects.filter(track=True)):
         return no_default_project_error(request)
