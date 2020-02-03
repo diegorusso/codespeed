@@ -128,7 +128,7 @@
       executables: [{% for exe in checkedexecutables %}{{ exe.id }}, {% endfor %}],
       branches: [{% for b in branch_list %}"{{ branch }}", {% endfor %}],
       benchmark: "{{ defaultbenchmark }}",
-      environment: {{ defaultenvironment.id }},
+      environment: "{{ defaultenvironment.id }}",
       equidistant: "{{ defaultequid }}",
       quartiles: "{{ defaultquarts }}",
       extrema: "{{ defaultextr }}"
