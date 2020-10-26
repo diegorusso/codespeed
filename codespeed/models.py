@@ -9,7 +9,11 @@ from django.core.exceptions import ValidationError
 from django.urls import reverse
 from django.conf import settings
 from django.db import models
-from django.utils.encoding import python_2_unicode_compatible
+try:
+    from django.utils.encoding import python_2_unicode_compatible
+except ImportError:
+    def python_2_unicode_compatible(arg):
+        return arg
 
 from .commits.github import GITHUB_URL_RE
 
@@ -107,6 +111,9 @@ class Branch(models.Model):
     name = models.CharField(max_length=32)
     project = models.ForeignKey(
         Project, on_delete=models.CASCADE, related_name="branches")
+    display_on_comparison_page = models.BooleanField(
+        "True to display this branch on the comparison page",
+        default=True)
 
     def __str__(self):
         return self.project.name + ":" + self.name

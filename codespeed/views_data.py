@@ -49,7 +49,12 @@ def get_default_environment(enviros, data, multi=False):
         return [defaultenviros[0],]
 
 
-def getbaselineexecutables():
+def getbaselineexecutables(include_tags=None):
+    """
+    :param include_tags: A list of tags to include in the result. If set to
+                         None,, it will include all the available tags.
+    :type include_tags: ``list``
+    """
     baseline = [{
         'key': "none",
         'name': "None",
@@ -57,14 +62,18 @@ def getbaselineexecutables():
         'revision': "none",
     }]
     executables = Executable.objects.select_related('project')
-    revs = Revision.objects.exclude(tag="").select_related('branch__project')
-    maxlen = 22
+
+    if include_tags is not None:
+        revs = Revision.objects.filter(tag__in=include_tags)
+    else:
+        revs = Revision.objects.exclude(tag="")
+
+    revs = revs.select_related('branch__project')
+
     for rev in revs:
         # Add executables that correspond to each tagged revision.
         for exe in [e for e in executables if e.project == rev.branch.project]:
-            exestring = str(exe)
-            if len(exestring) > maxlen:
-                exestring = str(exe)[0:maxlen] + "..."
+            exestring = get_sanitized_executable_name_for_timeline_view(exe)
             name = exestring + " " + rev.tag
             key = str(exe.id) + "+" + str(rev.id)
             baseline.append({
@@ -110,13 +119,15 @@ def getdefaultexecutable():
 
 
 def getcomparisonexes():
+    comparison_commit_tags = getattr(settings, 'COMPARISON_COMMIT_TAGS', None)
+
     all_executables = {}
     exekeys = []
-    baselines = getbaselineexecutables()
+    baselines = getbaselineexecutables(include_tags=comparison_commit_tags)
+
     for proj in Project.objects.all():
         executables = []
         executablekeys = []
-        maxlen = 20
         # add all tagged revs for any project
         for exe in baselines:
             if exe['key'] != "none" and exe['executable'].project == proj:
@@ -124,7 +135,7 @@ def getcomparisonexes():
                 executables.append(exe)
 
         # add latest revs of the project
-        branches = Branch.objects.filter(project=proj)
+        branches = Branch.objects.filter(project=proj, display_on_comparison_page=True)
         for branch in branches:
             try:
                 rev = Revision.objects.filter(branch=branch).latest('date')
@@ -134,11 +145,9 @@ def getcomparisonexes():
             # because we already added tagged revisions
             if rev.tag == "":
                 for exe in Executable.objects.filter(project=proj):
-                    exestring = str(exe)
-                    if len(exestring) > maxlen:
-                        exestring = str(exe)[0:maxlen] + "..."
+                    exestring = get_sanitized_executable_name_for_comparison_view(exe)
                     name = exestring + " latest"
-                    if branch.name != 'default':
+                    if branch.name != proj.default_branch:
                         name += " in branch '" + branch.name + "'"
                     key = str(exe.id) + "+L+" + branch.name
                     executablekeys.append(key)
@@ -260,3 +269,47 @@ def get_stats_with_defaults(res):
     if res.q3 is not None:
         q3 = res.q3
     return q1, q3, val_max, val_min
+
+
+def get_sanitized_executable_name_for_timeline_view(executable):
+    """
+    Return sanitized executable name which is used in the sidebar in the
+    Timeline and Changes view.
+
+    If the name is longer than settings.TIMELINE_EXECUTABLE_NAME_MAX_LEN,
+    the name will be truncated to that length and "..." appended to it.
+
+    :param executable: Executable object.
+    :type executable: :class:``codespeed.models.Executable``
+
+    :return: ``str``
+    """
+    maxlen = getattr(settings, 'TIMELINE_EXECUTABLE_NAME_MAX_LEN', 20)
+
+    exestring = str(executable)
+    if len(exestring) > maxlen:
+        exestring = str(executable)[0:maxlen] + "..."
+
+    return exestring
+
+
+def get_sanitized_executable_name_for_comparison_view(executable):
+    """
+    Return sanitized executable name which is used in the sidebar in the
+    comparison view.
+
+    If the name is longer than settings.COMPARISON_EXECUTABLE_NAME_MAX_LEN,
+    the name will be truncated to that length and "..." appended to it.
+
+    :param executable: Executable object.
+    :type executable: :class:``codespeed.models.Executable``
+
+    :return: ``str``
+    """
+    maxlen = getattr(settings, 'COMPARISON_EXECUTABLE_NAME_MAX_LEN', 22)
+
+    exestring = str(executable)
+    if len(exestring) > maxlen:
+        exestring = str(executable)[0:maxlen] + "..."
+
+    return exestring

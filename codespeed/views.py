@@ -66,7 +66,7 @@ class HomeView(TemplateView):
     template_name = "home.html"
 
     def get_context_data(self, **kwargs):
-        context = super().get_context_data(**kwargs)
+        context = super(HomeView, self).get_context_data(**kwargs)
         context['show_reports'] = settings.SHOW_REPORTS
         context['show_historical'] = settings.SHOW_HISTORICAL
         historical_settings = ['SHOW_HISTORICAL', 'DEF_BASELINE', 'DEF_EXECUTABLE']
@@ -91,12 +91,11 @@ def gethistoricaldata(request):
     else:
         env = env.first()
 
-    # Fetch Baseline data
+    # Fetch Baseline data, filter by executable
     baseline_exe = Executable.objects.get(
         name=settings.DEF_BASELINE['executable'])
     baseline_revs = Revision.objects.filter(
-        branch__project=baseline_exe.project,
-        tag=settings.DEF_BASELINE['revision']).order_by('-date')
+        branch__project=baseline_exe.project).order_by('-date')
     baseline_lastrev = baseline_revs[0]
     for rev in baseline_revs:
         baseline_results = Result.objects.filter(
@@ -115,15 +114,14 @@ def gethistoricaldata(request):
         name=default_exe.project.default_branch,
         project=default_exe.project)
 
-    # Fetch tagged revisions for default executable
+    # Fetch tagged revisions for executable
     default_taggedrevs = Revision.objects.filter(
             branch=default_branch
         ).exclude(tag="").order_by('date')
     default_results = {}
     for rev in default_taggedrevs:
         res = Result.objects.filter(
-            executable=default_exe,
-            revision=rev, environment=env)
+            executable=default_exe, revision=rev, environment=env)
         if not res:
             logger.info('no results for %s %s %s' % (str(default_exe), str(rev), str(env)))
             continue
@@ -226,7 +224,7 @@ def comparison(request):
                 else:
                     rev = Revision.objects.get(commitid=rev)
                     key += str(rev.id)
-                key += "+default"
+                key += "+%s" % (exe.project.default_branch)
                 if key in exekeys:
                     checkedexecutables.append(key)
                 else:
