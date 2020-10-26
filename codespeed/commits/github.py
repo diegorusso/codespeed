@@ -11,14 +11,17 @@ import logging
 try:
     # Python 3
     from urllib.request import urlopen
+    from urllib.request import Request
 except ImportError:
     # Python 2
-    from urllib import urlopen
+    from urllib2 import urlopen
+    from urllib2 import Request
 import re
 import json
 
 import isodate
 from django.core.cache import cache
+from django.conf import settings
 
 from .exceptions import CommitLogError
 
@@ -42,8 +45,17 @@ def fetch_json(url):
     json_obj = cache.get(url)
 
     if json_obj is None:
+        github_oauth_token = getattr(settings, 'GITHUB_OAUTH_TOKEN', None)
+
+        if github_oauth_token:
+            headers = {'Authorization': 'token %s' % (github_oauth_token)}
+        else:
+            headers = {}
+
+        request = Request(url=url, headers=headers)
+
         try:
-            json_obj = json.load(urlopen(url))
+            json_obj = json.load(urlopen(request))
         except IOError as e:
             logger.exception("Unable to load %s: %s",
                              url, e, exc_info=True)
@@ -91,11 +103,13 @@ def retrieve_revision(commit_id, username, project, revision=None):
     if revision:
         # Overwrite any existing data we might have for this revision since
         # we never want our records to be out of sync with the actual VCS:
-
-        # We need to convert the timezone-aware date to a naive (i.e.
-        # timezone-less) date in UTC to avoid killing MySQL:
-        revision.date = date.astimezone(
-            isodate.tzinfo.Utc()).replace(tzinfo=None)
+        if not getattr(settings, 'USE_TZ_AWARE_DATES', False):
+            # We need to convert the timezone-aware date to a naive (i.e.
+            # timezone-less) date in UTC to avoid killing MySQL:
+            logger.debug('USE_TZ_AWARE_DATES setting is set to False, '
+                         'converting datetime object to a naive one')
+            revision.date = date.astimezone(
+                isodate.tzinfo.Utc()).replace(tzinfo=None)
         revision.author = commit_json['author']['name']
         revision.message = commit_json['message']
         revision.full_clean()

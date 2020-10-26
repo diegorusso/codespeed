@@ -224,6 +224,18 @@ COMP_EXECUTABLES = [
     ('myexe', 'L'),
 ]
 ```
+* `COMPARISON_COMMIT_TAGS: Defines a list of tags to display on the comparison page. This comes
+  handy when there are a lot of tags. It defaults to ``None`` which means display all the available
+  tags.
+
+### VCS Provider Specific Settings
+
+#### Github
+
+* ``GITHUB_OAUTH_TOKEN`` - Github oAuth token to use for authenticating against
+  the Github API. If not provided, it will default to unauthenticated API requests
+  which have low rate limits so an exception may be thrown when retrieving info
+  from the Github API due to the rate limit being reached.
 
 ## Getting help
 

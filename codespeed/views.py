@@ -66,7 +66,7 @@ class HomeView(TemplateView):
     template_name = "home.html"
 
     def get_context_data(self, **kwargs):
-        context = super().get_context_data(**kwargs)
+        context = super(HomeView, self).get_context_data(**kwargs)
         context['show_reports'] = settings.SHOW_REPORTS
         context['show_historical'] = settings.SHOW_HISTORICAL
         historical_settings = ['SHOW_HISTORICAL', 'DEF_BASELINE', 'DEF_EXECUTABLE']
@@ -121,12 +121,7 @@ def gethistoricaldata(request):
     default_results = {}
     for rev in default_taggedrevs:
         res = Result.objects.filter(
-<<<<<<< HEAD
-            executable=default_exe,
-            revision=rev, environment=env)
-=======
             executable=default_exe, revision=rev, environment=env)
->>>>>>> cbe5458... MAINT: more deeply embed DEFAULT_EXECUTABLE into historical data plots
         if not res:
             logger.info('no results for %s %s %s' % (str(default_exe), str(rev), str(env)))
             continue
@@ -136,13 +131,8 @@ def gethistoricaldata(request):
     revs = Revision.objects.filter(
         branch=default_branch).order_by('-date')[:100]
     default_lastrev = None
-<<<<<<< HEAD
     for rev in revs:
         default_lastrev = rev
-=======
-    for i in range(4):
-        default_lastrev = revs[i]
->>>>>>> cbe5458... MAINT: more deeply embed DEFAULT_EXECUTABLE into historical data plots
         if default_lastrev.results.filter(executable=default_exe, environment=env):
             break
         default_lastrev = None
@@ -234,7 +224,7 @@ def comparison(request):
                 else:
                     rev = Revision.objects.get(commitid=rev)
                     key += str(rev.id)
-                key += "+default"
+                key += "+%s" % (exe.project.default_branch)
                 if key in exekeys:
                     checkedexecutables.append(key)
                 else:
