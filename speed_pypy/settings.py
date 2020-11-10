@@ -79,6 +79,7 @@ INSTALLED_APPS = (
 
 
 STATIC_URL = '/static/'
+STATIC_URL = 'https://speed.pypy.org/static/'
 STATIC_ROOT = os.path.join(BASEDIR, "sitestatic")
 STATICFILES_DIRS = (
     os.path.join(BASEDIR, 'static'),
@@ -87,7 +88,7 @@ STATICFILES_DIRS = (
 SHOW_REPORTS = False
 SHOW_HISTORICAL = True
 DEF_BASELINE = {'executable': 'cpython', 'revision': '3.6.7'}
-DEF_EXECUTABLE = 'pypy3-jit-64'
+DEF_EXECUTABLE = {'name': 'pypy3-jit-64', 'project': 'PyPy3.6'}
 DEF_ENVIRONMENT = 'benchmarker'
 
 

@@ -107,7 +107,9 @@ def getdefaultexecutable():
     if (hasattr(settings, 'DEF_EXECUTABLE') and
             settings.DEF_EXECUTABLE is not None):
         try:
-            default = Executable.objects.get(name=settings.DEF_EXECUTABLE)
+            def_name = settings.DEF_EXECUTABLE['name']
+            def_project = Project.objects.get(name=settings.DEF_EXECUTABLE['project'])
+            default = Executable.objects.get(name=def_name, project=def_project)
         except Executable.DoesNotExist:
             pass
     if default is None:

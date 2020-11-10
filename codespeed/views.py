@@ -74,12 +74,21 @@ class HomeView(TemplateView):
             context['show_historical'] = False
             return context
 
-        baseline_exe = Executable.objects.get(
-            name=settings.DEF_BASELINE['executable'])
-        context['baseline'] = baseline_exe
-        default_exe = Executable.objects.get(name=settings.DEF_EXECUTABLE)
-        context['default_exe'] = default_exe
-        return context
+        try:
+            baseline_exe = Executable.objects.get(
+                name=settings.DEF_BASELINE['executable'])
+            context['baseline'] = baseline_exe
+            def_name = settings.DEF_EXECUTABLE['name']
+            def_project = Project.objects.get(name=settings.DEF_EXECUTABLE['project'])
+            default_exe = Executable.objects.get(name=def_name,
+                                                 project=def_project,
+                                                )
+            context['default_exe'] = default_exe
+            return context
+        except Exception as e:
+            print('exception', e)
+            context['show_historical'] = False
+            return context
 
 
 @require_GET
@@ -109,7 +118,9 @@ def gethistoricaldata(request):
     data['baseline'] = '{} {}'.format(
         settings.DEF_BASELINE['executable'], baseline_lastrev.tag)
 
-    default_exe = Executable.objects.get(name=settings.DEF_EXECUTABLE)
+    def_name = settings.DEF_EXECUTABLE['name']
+    def_project = Project.objects.get(name=settings.DEF_EXECUTABLE['project'])
+    default_exe = Executable.objects.get(name=def_name, project=def_project)
     default_branch = Branch.objects.get(
         name=default_exe.project.default_branch,
         project=default_exe.project)
