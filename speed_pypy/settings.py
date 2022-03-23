@@ -87,8 +87,8 @@ STATICFILES_DIRS = (
 
 SHOW_REPORTS = False
 SHOW_HISTORICAL = True
-DEF_BASELINE = {'executable': 'cpython', 'revision': '3.6.7'}
-DEF_EXECUTABLE = {'name': 'pypy3-jit-64', 'project': 'PyPy3.7'}
+DEF_BASELINE = {'executable': 'cpython', 'revision': '3.6.8'}
+DEF_EXECUTABLE = {'name': 'pypy3.9-jit-64', 'project': 'PyPy3.9'}
 DEF_ENVIRONMENT = 'benchmarker'
 
 

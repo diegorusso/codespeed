@@ -79,7 +79,9 @@ def save_result(data, update_repo=True):
         # "None" (as string) can happen when we urlencode the POST data
         if not rev_date or rev_date in ["", "None"]:
             rev_date = datetime.today()
-        rev = Revision(branch=branch, project=p, commitid=data['commitid'],
+        # Only take the hash of a mercurial nnn:xxxhash commitid
+        rev = Revision(branch=branch, project=p,
+                       commitid=data['commitid'].split(':')[-1],
                        date=rev_date)
         try:
             rev.full_clean()
