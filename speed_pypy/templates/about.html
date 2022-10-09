@@ -5,7 +5,17 @@
 </div>
 <div id="about" class="about_content clearfix">
 <h3>About this site</h3>
-<p>We have nightly benchmark runs of pypy, together with cpython data for comparison.</p>
+<p>We have nightly benchmark runs of pypy, together with cpython data for
+comparison. The current benchmarks have run since 2016 on a dedicated machine
+named <b>benchmarker</b>. Previously, we had other machines (<b>tannit</b> and
+briefly <b>speed-python</b>. The <b>benchmarker</b> machine is generously
+donated by <a href="https://baroquesoftware.com">Baroque Software</a>. The
+specs are:</p>
+<ul><li>Processor: Intel(R) Core(TM) i7-7700 CPU @ 3.60GHz</li>
+<li>RAM: 64GB Micron DDR4 2400 MHz</li>
+<li>Disk: 4TB TOSHIBA MG04ACA4</li>
+</ul>
+
 <p>This site runs on top of Django and Codespeed</p>
 <h3>About the benchmarks</h3>
 <p>The benchmark code can be found <a
@@ -23,8 +33,6 @@ Codespeed is a web application to monitor and analyze the performance of your co
 <p>Code: <a href="https://github.com/python/codespeed/tree/speed.pypy.org">PyPy branch of python fork of codespeed</a>
 <p>Wiki: <a href="https://wiki.github.com/tobami/codespeed/">wiki.github.com/tobami/codespeed/</a></p>
 <h3>Contact</h3>
-<p>For problems or suggestions about this website write to</p>
-<p>the <a href="https://pypy.org/contact/">PyPy team</a> or directly to Miquel Torres (tobami at googlemail dot com)</p>
-
+<p>For problems or suggestions about this website please file an issue on the github repo</p>
 </div>
 {% endblock %}
