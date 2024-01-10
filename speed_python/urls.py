@@ -3,17 +3,16 @@
 import os.path
 
 from django.conf import settings
-from django.conf.urls import patterns, include
+from django.urls import include, re_path
 from django.views.generic import RedirectView
-from django.core.urlresolvers import reverse
 from django.contrib import admin
 
 admin.autodiscover()
 
-urlpatterns = patterns('',
-    (r'^admin/', include(admin.site.urls)),
-    (r'^', include('codespeed.urls')),
-)
+urlpatterns = [
+    re_path(r'^admin/', admin.site.urls),
+    re_path(r'^', include('codespeed.urls')),
+]
 
 if settings.DEBUG:
     # needed for development server

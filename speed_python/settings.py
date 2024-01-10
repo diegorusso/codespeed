@@ -22,6 +22,7 @@ DATABASES = {
         'NAME': os.path.join(BASEDIR, 'data.db'),
     }
 }
+DEFAULT_AUTO_FIELD='django.db.models.AutoField'
 
 TIME_ZONE = 'America/Chicago'
 
@@ -46,7 +47,7 @@ TEMPLATE_LOADERS = (
     'django.template.loaders.app_directories.Loader',
 )
 
-MIDDLEWARE_CLASSES = (
+MIDDLEWARE = (
     'django.middleware.common.CommonMiddleware',
     'django.contrib.sessions.middleware.SessionMiddleware',
     'django.middleware.csrf.CsrfViewMiddleware',
@@ -60,40 +61,51 @@ if DEBUG:
 
     # Define a class that logs unhandled errors
     class LogUncatchedErrors:
+        def __init__(self, get_response):
+            self.get_response = get_response
+
+        def __call__(self, request):
+            return self.get_response(request)
+
         def process_exception(self, request, exception):
             logging.error("Unhandled Exception on request for %s\n%s" %
                                  (request.build_absolute_uri(),
                                   traceback.format_exc()))
     # And add it to the middleware classes
-    MIDDLEWARE_CLASSES += ('speed_python.settings.LogUncatchedErrors',)
+    MIDDLEWARE += ('speed_python.settings.LogUncatchedErrors',)
 
     # set shown level of logging output to debug
     logging.basicConfig(level=logging.DEBUG)
 
 ROOT_URLCONF = '{0}.urls'.format(TOPDIR)
 
-TEMPLATE_DIRS = (
-    os.path.join(BASEDIR, 'templates'),
-)
-
-TEMPLATE_CONTEXT_PROCESSORS = (
-    'django.contrib.auth.context_processors.auth',
-    'django.contrib.messages.context_processors.messages',
-    'django.core.context_processors.debug',
-    'django.core.context_processors.i18n',
-    'django.core.context_processors.media',
-    'django.core.context_processors.static',
-    'django.core.context_processors.request',
-)
+TEMPLATES = [
+    {
+        'BACKEND': 'django.template.backends.django.DjangoTemplates',
+        'DIRS': [os.path.join(BASEDIR, 'templates')],
+        'APP_DIRS': True,
+        'OPTIONS': {
+            'context_processors': [
+                'django.contrib.auth.context_processors.auth',
+                'django.contrib.messages.context_processors.messages',
+                'django.template.context_processors.debug',
+                'django.template.context_processors.i18n',
+                'django.template.context_processors.media',
+                'django.template.context_processors.static',
+                'django.template.context_processors.request',
+            ],
+        },
+    },
+]
 
 INSTALLED_APPS = (
     'django.contrib.auth',
     'django.contrib.contenttypes',
     'django.contrib.sessions',
     'django.contrib.admin',
+    'django.contrib.messages',
     'django.contrib.staticfiles',
     'codespeed',
-    'gunicorn',
 )
 
 STATIC_URL = '/static/'
