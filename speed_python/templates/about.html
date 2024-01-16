@@ -42,11 +42,15 @@ Jesse Noller's blog.</a></p>
 
 <p>For now, only CPython is being benchmarked, but we hope to expand in the future.</p>
 
-<h4>The Machine</h4>
-<p>Nicknamed "the beast" - the speed.python.org machine was generously donated to the
-Python Software foundation by the <a href="https://hp.com/go/linux" target="_blank">
-HP Open Source Program office</a>.
-</p>
+<h3>The Benchmark Machines</h3>
+
+<p>On speed.python.org both <b>x86</b> and <b>AArch64</b> architectures are being
+measured. Below the specs of the machines used.</p>
+
+<h4>The x86 machine</h4>
+<p>Nicknamed "the beast", the  machine was generously donated to the Python
+Software foundation by the <a href="https://hp.com/go/linux" target="_blank">
+HP Open Source Program office</a>.</p>
 
 <p>The hardware specs are:
 <ul>
@@ -67,7 +71,6 @@ The machine is configured with Ubuntu 18.04 LTS, HW RAID and a simple LVM setup.
 HP's generous donation can not be spoken of highly enough.
 </p>
 
-<h4>The Hosting</h4>
 <p>The racking, stacking and hardware administration and all bandwidth has been
 generously donated by the <a href="https://osuosl.org/" target="_blank">
 The Oregon State University Open Source Lab</a> (OSUOSL)
@@ -75,6 +78,26 @@ who have been amazing open source supporters, and supporters of the Python
 Software foundation.</p>
 
 <p>We can not thank OSUOSL enough for the hosting and administration.</p>
+
+<h4>The AArch64 machine</h4>
+<p>The machine is generously sponsored by <a href="https://www.arm.com">Arm Ltd</a>
+through the <a href="https://www.arm.com/markets/computing-infrastructure/works-on-arm">
+Works on Arm project</a>.</p>
+
+<p>The hardware specs are:
+<ul>
+  <li>1xAmpere Altra ARMv8 Processor at 3Ghz (80 cores)</li>
+  <li>256GB RAM</li>
+  <li>1x960GB SSD</li>
+  <li>2x10Gbps</li>
+</ul>
+
+The machine is configured with Ubuntu 22.04.2 LTS and administered by
+<a href="https://github.com/diegorusso">Diego Russo</a> and
+<a href="https://github.com/ambv">Łukasz Langa</a>.</p>
+
+<p>The hosting, the hardware, the provisioning of the machine is all provided by
+<a href="https://www.equinix.co.uk/">Equinix</a>.</p>
 
 <h3>About the benchmarks</h3>
 <p>The code can be found <a href="https://github.com/python/pyperformance">here</a>.</p>
