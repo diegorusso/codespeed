@@ -106,6 +106,7 @@ INSTALLED_APPS = (
     'django.contrib.messages',
     'django.contrib.staticfiles',
     'codespeed',
+    'gunicorn',
 )
 
 STATIC_URL = '/static/'
