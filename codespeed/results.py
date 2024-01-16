@@ -47,7 +47,7 @@ def validate_result(item):
         return "Environment %(environment)s not found" % item, error
 
 
-def save_result(data):
+def save_result(data, update_repo=True):
     res, error = validate_result(data)
     if error:
         return res, True
@@ -88,7 +88,7 @@ def save_result(data):
             return str(e), True
         if p.repo_type not in ("N", ""):
             try:
-                commit_logs = commits.get_logs(rev, rev, update=True)
+                commit_logs = commits.get_logs(rev, rev, update=update_repo)
             except commits.exceptions.CommitLogError as e:
                 logger.warning("unable to save revision %s info: %s", rev, e,
                                exc_info=True)
@@ -98,6 +98,7 @@ def save_result(data):
                     rev.author = log['author']
                     rev.date = log['date']
                     rev.message = log['message']
+                    rev.tag = log['tag']
 
         rev.save()
 
@@ -134,6 +135,9 @@ def save_result(data):
 
 def create_report_if_enough_data(rev, exe, e):
     """Triggers Report creation when there are enough results"""
+    if exe.project.track is not True:
+        return False
+
     last_revs = Revision.objects.filter(
         branch=rev.branch
     ).order_by('-date')[:2]

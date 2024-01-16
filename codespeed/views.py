@@ -4,20 +4,29 @@ from __future__ import absolute_import, unicode_literals
 import json
 import logging
 
-from django.core.urlresolvers import reverse
-from django.http import HttpResponse, Http404, HttpResponseBadRequest
+import django
+from django.conf import settings
+from django.urls import reverse
+from django.core.exceptions import ValidationError, ObjectDoesNotExist
+from django.http import HttpResponse, Http404, HttpResponseBadRequest, \
+    HttpResponseNotFound, StreamingHttpResponse
+from django.db.models import F
 from django.shortcuts import get_object_or_404, render_to_response
 from django.views.decorators.http import require_GET, require_POST
 from django.views.decorators.csrf import csrf_exempt
-from django.template import RequestContext
-from django.conf import settings
+from django.views.generic.base import TemplateView
 
+from .auth import basic_auth_required
 from .models import (Environment, Report, Project, Revision, Result,
                      Executable, Benchmark, Branch)
 from .views_data import (get_default_environment, getbaselineexecutables,
-                         getdefaultexecutable, getcomparisonexes)
+                         getdefaultexecutable, getcomparisonexes,
+                         get_benchmark_results, get_num_revs_and_benchmarks,
+                         get_stats_with_defaults)
 from .results import save_result, create_report_if_enough_data
 from . import commits
+from .validators import validate_results_request
+from .images import gen_image_from_results
 
 logger = logging.getLogger(__name__)
 
@@ -28,7 +37,7 @@ def no_environment_error(request):
         'message': ('You need to configure at least one Environment. '
                     'Please go to the '
                     '<a href="%s">admin interface</a>' % admin_url)
-    }, context_instance=RequestContext(request))
+    })
 
 
 def no_default_project_error(request):
@@ -38,19 +47,116 @@ def no_default_project_error(request):
                     'default (checked "Track changes" field).<br />'
                     'Please go to the '
                     '<a href="%s">admin interface</a>' % admin_url)
-    }, context_instance=RequestContext(request))
+    })
 
 
 def no_executables_error(request):
     return render_to_response('codespeed/nodata.html', {
         'message': 'There needs to be at least one executable'
-    }, context_instance=RequestContext(request))
+    })
 
 
 def no_data_found(request):
     return render_to_response('codespeed/nodata.html', {
         'message': 'No data found'
-    }, context_instance=RequestContext(request))
+    })
+
+
+class HomeView(TemplateView):
+    template_name = "home.html"
+
+    def get_context_data(self, **kwargs):
+        context = super(HomeView, self).get_context_data(**kwargs)
+        context['show_reports'] = settings.SHOW_REPORTS
+        context['show_historical'] = settings.SHOW_HISTORICAL
+        historical_settings = ['SHOW_HISTORICAL', 'DEF_BASELINE', 'DEF_EXECUTABLE']
+        if not all(getattr(settings, var) for var in historical_settings):
+            context['show_historical'] = False
+            return context
+
+        baseline_exe = Executable.objects.get(
+            name=settings.DEF_BASELINE['executable'])
+        context['baseline'] = baseline_exe
+        default_exe = Executable.objects.get(name=settings.DEF_EXECUTABLE)
+        context['default_exe'] = default_exe
+        return context
+
+
+@require_GET
+def gethistoricaldata(request):
+    data = {'results': {}, 'benchmarks': []}
+    env = Environment.objects.all()
+    if settings.DEF_ENVIRONMENT:
+        env = env.get(name=settings.DEF_ENVIRONMENT)
+    else:
+        env = env.first()
+
+    # Fetch Baseline data, filter by executable
+    baseline_exe = Executable.objects.get(
+        name=settings.DEF_BASELINE['executable'])
+    baseline_revs = Revision.objects.filter(
+        branch__project=baseline_exe.project).order_by('-date')
+    baseline_lastrev = baseline_revs[0]
+    for rev in baseline_revs:
+        baseline_results = Result.objects.filter(
+            executable=baseline_exe, revision=rev, environment=env)
+        if baseline_results:
+            baseline_lastrev = rev
+            break
+    if len(baseline_results) == 0:
+        logger.error('Could not find results for {} rev="{}" env="{}"'.format(
+                baseline_exe, baseline_lastrev, env))
+    data['baseline'] = '{} {}'.format(
+        settings.DEF_BASELINE['executable'], baseline_lastrev.tag)
+
+    default_exe = Executable.objects.get(name=settings.DEF_EXECUTABLE)
+    default_branch = Branch.objects.get(
+        name=default_exe.project.default_branch,
+        project=default_exe.project)
+
+    # Fetch tagged revisions for executable
+    default_taggedrevs = Revision.objects.filter(
+            branch=default_branch
+        ).exclude(tag="").order_by('date')
+    default_results = {}
+    for rev in default_taggedrevs:
+        res = Result.objects.filter(
+            executable=default_exe, revision=rev, environment=env)
+        if not res:
+            logger.info('no results for %s %s %s' % (str(default_exe), str(rev), str(env)))
+            continue
+        default_results[rev.tag] = res
+    data['tagged_revs'] = [rev.tag for rev in default_taggedrevs if rev.tag in default_results]
+    # Fetch data for latest results
+    revs = Revision.objects.filter(
+        branch=default_branch).order_by('-date')[:5]
+    default_lastrev = None
+    for i in range(4):
+        default_lastrev = revs[i]
+        if default_lastrev.results.filter(executable=default_exe, environment=env):
+            break
+        default_lastrev = None
+    if default_lastrev is None:
+        return HttpResponse(json.dumps(data))
+    default_results['latest'] = Result.objects.filter(
+        executable=default_exe, revision=default_lastrev, environment=env)
+
+    # Collect data
+    benchmarks = []
+    for res in baseline_results:
+        if res == 0:
+            continue
+        benchmarks.append(res.benchmark.name)
+        data['results'][res.benchmark.name] = {data['baseline']: res.value}
+        for rev_name in default_results:
+            val = 0
+            for default_res in default_results[rev_name]:
+                if default_res.benchmark.name == res.benchmark.name:
+                    val = default_res.value
+            data['results'][res.benchmark.name][rev_name] = val
+    benchmarks.sort()
+    data['benchmarks'] = benchmarks
+    return HttpResponse(json.dumps(data))
 
 
 @require_GET
@@ -67,8 +173,8 @@ def getcomparisondata(request):
             for env in environments:
                 compdata[exe['key']][env.id] = {}
 
-                # Load all results for this env/executable/revision in a dict
-                # for fast lookup
+                # Load all results for this env/executable/revision in a
+                # dict for fast lookup
                 results = dict(Result.objects.filter(
                     environment=env,
                     executable=exe['executable'],
@@ -119,7 +225,7 @@ def comparison(request):
                 else:
                     rev = Revision.objects.get(commitid=rev)
                     key += str(rev.id)
-                key += "+default"
+                key += "+%s" % (exe.project.default_branch)
                 if key in exekeys:
                     checkedexecutables.append(key)
                 else:
@@ -215,7 +321,13 @@ def comparison(request):
         'selectedbaseline': selectedbaseline,
         'selectedchart': selectedchart,
         'selecteddirection': selecteddirection
-    }, context_instance=RequestContext(request))
+    })
+
+def get_setting(name, default = None):
+    if hasattr(settings, name):
+        return getattr(settings, name)
+    else:
+        return default
 
 
 @require_GET
@@ -224,8 +336,18 @@ def gettimelinedata(request):
 
     timeline_list = {'error': 'None', 'timelines': []}
 
-    executables = data.get('exe', "").split(",")
-    if not filter(None, executables):
+    executable_ids = data.get('exe', '').split(',')
+
+    executables = []
+    for i in executable_ids:
+        if not i:
+            continue
+        try:
+            executables.append(Executable.objects.get(id=int(i)))
+        except Executable.DoesNotExist:
+            pass
+
+    if not executables:
         timeline_list['error'] = "No executables selected"
         return HttpResponse(json.dumps(timeline_list))
     environment = None
@@ -234,124 +356,160 @@ def gettimelinedata(request):
     except ValueError:
         Http404()
 
-    benchmarks = []
-    number_of_revs = int(data.get('revs', 10))
+    number_of_revs, benchmarks = get_num_revs_and_benchmarks(data)
 
-    if data['ben'] == 'grid':
-        benchmarks = Benchmark.objects.all().order_by('name')
-        number_of_revs = 15
-    elif data['ben'] == 'show_none':
-        benchmarks = []
-    else:
-        benchmarks = [get_object_or_404(Benchmark, name=data['ben'])]
-
-    baselinerev = None
-    baselineexe = None
+    baseline_rev = None
+    baseline_exe = None
     if data.get('base') not in (None, 'none', 'undefined'):
-        exeid, revid = data['base'].split("+")
-        baselinerev = Revision.objects.get(id=revid)
-        baselineexe = Executable.objects.get(id=exeid)
+        exe_id, rev_id = data['base'].split("+")
+        baseline_rev = Revision.objects.get(id=rev_id)
+        baseline_exe = Executable.objects.get(id=exe_id)
+
+    next_benchmarks = data.get('nextBenchmarks', False)
+    if next_benchmarks is not False:
+        next_benchmarks = int(next_benchmarks)
+
+    resp = StreamingHttpResponse(stream_timeline(baseline_exe, baseline_rev, benchmarks, data,
+                                                 environment, executables, number_of_revs,
+                                                 next_benchmarks),
+                                 content_type='application/json')
+    return resp
+
+
+def stream_timeline(baseline_exe, baseline_rev, benchmarks, data, environment, executables,
+                    number_of_revs, next_benchmarks):
+    yield '{"timelines": ['
+    num_results = {"results": 0}
+    num_benchmark = 0
+    transmitted_benchmarks = 0
+    timeline_grid_paging = get_setting('TIMELINE_GRID_PAGING', 10)
+
     for bench in benchmarks:
-        lessisbetter = bench.lessisbetter and ' (less is better)' or ' (more is better)'
-        timeline = {
-            'benchmark':             bench.name,
-            'benchmark_id':          bench.id,
-            'benchmark_description': bench.description,
-            'data_type':             bench.data_type,
-            'units':                 bench.units,
-            'lessisbetter':          lessisbetter,
-            'branches':              {},
-            'baseline':              "None",
-        }
-        # Temporary
-        trunks = []
-        if Branch.objects.filter(name=settings.DEF_BRANCH):
-            trunks.append(settings.DEF_BRANCH)
-        # For now, we'll only work with trunk branches
-        append = False
-        for branch in trunks:
-            append = False
-            timeline['branches'][branch] = {}
-            for executable in executables:
-                resultquery = Result.objects.filter(
-                    benchmark=bench
-                ).filter(
-                    environment=environment
-                ).filter(
-                    executable=executable
-                ).filter(
-                    revision__branch__name=branch
-                ).select_related(
-                    "revision"
-                ).order_by('-revision__date')[:number_of_revs]
-                if not len(resultquery):
-                    continue
+        if transmitted_benchmarks + 1 > timeline_grid_paging:
+            # don't send more results than configured
+            break
 
-                results = []
-                for res in resultquery:
-                    if bench.data_type == 'M':
-                        val_min = ""
-                        if res.val_min is not None:
-                            val_min = res.val_min
-                        val_max = ""
-                        if res.val_max is not None:
-                            val_max = res.val_max
-                        q1 = ""
-                        if res.q1 is not None:
-                            q1 = res.q1
-                        q3 = ""
-                        if res.q3 is not None:
-                            q3 = res.q3
-                        results.append(
-                            [
-                                res.revision.date.strftime('%Y/%m/%d %H:%M:%S %z'),
-                                res.value, val_max, q3, q1, val_min,
-                                res.revision.get_short_commitid(), branch
-                            ]
-                        )
-                    else:
-                        std_dev = ""
-                        if res.std_dev is not None:
-                            std_dev = res.std_dev
-                        results.append(
-                            [
-                                res.revision.date.strftime('%Y/%m/%d %H:%M:%S %z'),
-                                res.value, std_dev,
-                                res.revision.get_short_commitid(), branch
-                            ]
-                        )
-                timeline['branches'][branch][executable] = results
-                append = True
-            if baselinerev is not None and append:
-                try:
-                    baselinevalue = Result.objects.get(
-                        executable=baselineexe,
-                        benchmark=bench,
-                        revision=baselinerev,
-                        environment=environment
-                    ).value
-                except Result.DoesNotExist:
-                    timeline['baseline'] = "None"
+        num_benchmark += 1
+
+        if not next_benchmarks or num_benchmark > next_benchmarks:
+            result = get_timeline_for_benchmark(baseline_exe, baseline_rev, bench, environment,
+                                                executables, number_of_revs, num_results)
+            if result != "":
+                transmitted_benchmarks += 1
+                yield result
+
+    if not next_benchmarks or (next_benchmarks < len(benchmarks)
+                               and transmitted_benchmarks > 0):
+        next_page = ', "nextBenchmarks": ' + str(num_benchmark)
+    else:
+        next_page = ', "nextBenchmarks": false'
+
+    if next_benchmarks:
+        not_first = ', "first": false'
+    else:
+        not_first = ', "first": true'
+
+    if num_results['results'] == 0 and data['ben'] != 'show_none' and not next_benchmarks:
+        yield ']' + not_first + next_page + ', "error":"No data found for the selected options"}\n'
+    else:
+        yield ']' + not_first + next_page + ', "error":"None"}\n'
+
+
+def get_timeline_for_benchmark(baseline_exe, baseline_rev, bench, environment, executables,
+                               number_of_revs, num_results):
+    lessisbetter = bench.lessisbetter and ' (less is better)' or ' (more is better)'
+    timeline = {
+        'benchmark': bench.name,
+        'benchmark_id': bench.id,
+        'benchmark_description': bench.description,
+        'data_type': bench.data_type,
+        'units': bench.units,
+        'lessisbetter': lessisbetter,
+        'branches': {},
+        'baseline': "None",
+    }
+    append = False
+    for branch in Branch.objects.filter(
+            project__track=True, name=F('project__default_branch')):
+        # For now, we'll only work with default branches
+        for executable in executables:
+            if executable.project != branch.project:
+                continue
+
+            resultquery = Result.objects.filter(
+                benchmark=bench
+            ).filter(
+                environment=environment
+            ).filter(
+                executable=executable
+            ).filter(
+                revision__branch=branch
+            ).select_related(
+                "revision"
+            ).order_by('-revision__date')[:number_of_revs]
+            if not len(resultquery):
+                continue
+            timeline['branches'].setdefault(branch.name, {})
+
+            results = []
+            for res in resultquery:
+                if bench.data_type == 'M':
+                    q1, q3, val_max, val_min = get_stats_with_defaults(res)
+                    results.append(
+                        [
+                            res.revision.date.strftime('%Y/%m/%d %H:%M:%S %z'),
+                            res.value, val_max, q3, q1, val_min,
+                            res.revision.get_short_commitid(), res.revision.tag, branch.name
+                        ]
+                    )
                 else:
-                    # determine start and end revision (x axis)
-                    # from longest data series
-                    results = []
-                    for exe in timeline['branches'][branch]:
-                        if len(timeline['branches'][branch][exe]) > len(results):
-                            results = timeline['branches'][branch][exe]
-                    end = results[0][0]
-                    start = results[len(results) - 1][0]
-                    timeline['baseline'] = [
-                        [str(start), baselinevalue],
-                        [str(end), baselinevalue]
-                    ]
-        if append:
-            timeline_list['timelines'].append(timeline)
+                    std_dev = ""
+                    if res.std_dev is not None:
+                        std_dev = res.std_dev
+                    results.append(
+                        [
+                            res.revision.date.strftime('%Y/%m/%d %H:%M:%S %z'),
+                            res.value, std_dev,
+                            res.revision.get_short_commitid(), res.revision.tag, branch.name
+                        ]
+                    )
+            timeline['branches'][branch.name][executable.id] = results
+            append = True
+    if baseline_rev is not None and append:
+        try:
+            baselinevalue = Result.objects.get(
+                executable=baseline_exe,
+                benchmark=bench,
+                revision=baseline_rev,
+                environment=environment
+            ).value
+        except Result.DoesNotExist:
+            timeline['baseline'] = "None"
+        else:
+            # determine start and end revision (x axis)
+            # from longest data series
+            results = []
+            for branch in timeline['branches']:
+                for exe in timeline['branches'][branch]:
+                    if len(timeline['branches'][branch][exe]) > len(results):
+                        results = timeline['branches'][branch][exe]
+            end = results[0][0]
+            start = results[len(results) - 1][0]
+            timeline['baseline'] = [
+                [str(start), baselinevalue],
+                [str(end), baselinevalue]
+            ]
+    if append:
+        old_num_results = num_results['results']
+        json_str = json.dumps(timeline)
+        num_results['results'] = old_num_results + len(timeline)
 
-    if not len(timeline_list['timelines']) and data['ben'] != 'show_none':
-        response = 'No data found for the selected options'
-        timeline_list['error'] = response
-    return HttpResponse(json.dumps(timeline_list))
+        if old_num_results > 0:
+            return "," + json_str
+        else:
+            return json_str
+    else:
+        return ""
 
 
 @require_GET
@@ -418,7 +576,7 @@ def timeline(request):
         defaultlast = data['revs']
 
     benchmarks = Benchmark.objects.all()
-    grid_limit = 30
+
     defaultbenchmark = "grid"
     if not len(benchmarks):
         return no_data_found(request)
@@ -433,7 +591,7 @@ def timeline(request):
                     name=settings.DEF_BENCHMARK)
             except Benchmark.DoesNotExist:
                 pass
-    elif len(benchmarks) >= grid_limit:
+    elif len(benchmarks) >= get_setting('TIMELINE_GRID_LIMIT', 30):
         defaultbenchmark = 'show_none'
 
     if 'ben' in data and data['ben'] != defaultbenchmark:
@@ -456,11 +614,17 @@ def timeline(request):
         defaultextr = "on"
 
     # Information for template
+    if defaultbenchmark in ['grid', 'show_none']:
+        pagedesc = None
+    else:
+        pagedesc = "Results timeline for the '%s' benchmark (project %s)" % \
+            (defaultbenchmark, defaultproject)
     executables = {}
     for proj in Project.objects.filter(track=True):
         executables[proj] = Executable.objects.filter(project=proj)
     use_median_bands = hasattr(settings, 'USE_MEDIAN_BANDS') and settings.USE_MEDIAN_BANDS
     return render_to_response('codespeed/timeline.html', {
+        'pagedesc': pagedesc,
         'checkedexecutables': checkedexecutables,
         'defaultbaseline': defaultbaseline,
         'baseline': baseline,
@@ -477,7 +641,7 @@ def timeline(request):
         'defaultquarts': defaultquarts,
         'defaultextr': defaultextr,
         'use_median_bands': use_median_bands,
-    }, context_instance=RequestContext(request))
+    })
 
 
 @require_GET
@@ -490,6 +654,47 @@ def getchangestable(request):
         raise Http404()
     selectedrev = get_object_or_404(Revision, commitid=request.GET.get('rev'),
                                     branch__project=executable.project)
+    prevrev = Revision.objects.filter(
+        branch=selectedrev.branch,
+        date__lt=selectedrev.date,
+    ).order_by('-date').first()
+    if prevrev:
+        try:
+            summary = Report.objects.get(
+                revision=prevrev,
+                executable=executable,
+                environment=environment).item_description
+        except Report.DoesNotExist:
+            summary = ''
+        prevrev = {
+            'desc': str(prevrev),
+            'rev': prevrev.commitid,
+            'short_rev': prevrev.get_short_commitid(),
+            'summary': summary,
+        }
+    else:
+        prevrev = None
+
+    nextrev = Revision.objects.filter(
+        branch=selectedrev.branch,
+        date__gt=selectedrev.date,
+    ).order_by('date').first()
+    if nextrev:
+        try:
+            summary = Report.objects.get(
+                revision=nextrev,
+                executable=executable,
+                environment=environment).item_description
+        except Report.DoesNotExist:
+            summary = ''
+        nextrev = {
+            'desc': str(nextrev),
+            'rev': nextrev.commitid,
+            'short_rev': nextrev.get_short_commitid(),
+            'summary': summary,
+        }
+    else:
+        nextrev = None
 
     report, created = Report.objects.get_or_create(
         executable=executable, environment=environment, revision=selectedrev
@@ -508,7 +713,9 @@ def getchangestable(request):
         'rev': selectedrev,
         'exe': executable,
         'env': environment,
-    }, context_instance=RequestContext(request))
+        'prev': prevrev,
+        'next': nextrev,
+    })
 
 
 @require_GET
@@ -569,7 +776,7 @@ def changes(request):
     for proj in Project.objects.filter(track=True):
         executables[proj] = Executable.objects.filter(project=proj)
         projectlist.append(proj)
-        branch = Branch.objects.filter(name=settings.DEF_BRANCH, project=proj)
+        branch = Branch.objects.get(name=proj.default_branch, project=proj)
         revisionlists[proj.name] = list(Revision.objects.filter(
             branch=branch
         ).order_by('-date')[:revlimit])
@@ -604,7 +811,10 @@ def changes(request):
         ]
     revisionlists = json.dumps(revisionlists)
 
+    pagedesc = "Report of %s performance changes for commit %s on branch %s" % \
+        (defaultexecutable, selectedrevision.commitid, selectedrevision.branch)
     return render_to_response('codespeed/changes.html', {
+        'pagedesc': pagedesc,
         'defaultenvironment': defaultenv,
         'defaultexecutable': defaultexecutable,
         'selectedrevision': selectedrevision,
@@ -616,7 +826,7 @@ def changes(request):
         'projectmatrix': projectmatrix,
         'revisionlists': revisionlists,
         'trends': trends,
-    }, context_instance=RequestContext(request))
+    })
 
 
 @require_GET
@@ -624,18 +834,13 @@ def reports(request):
     context = {}
 
     context['reports'] = \
-        Report.objects.filter(
-            revision__branch__name=settings.DEF_BRANCH
-        ).order_by('-revision__date')[:10]
+        Report.objects.order_by('-revision__date')[:10]
 
-    context['significant_reports'] = \
-        Report.objects.filter(
-            revision__branch__name=settings.DEF_BRANCH,
-            colorcode__in=('red', 'green')
-        ).order_by('-revision__date')[:10]
+    context['significant_reports'] = Report.objects.filter(
+        colorcode__in=('red', 'green')
+    ).order_by('-revision__date')[:10]
 
-    return render_to_response('codespeed/reports.html', context,
-                              context_instance=RequestContext(request))
+    return render_to_response('codespeed/reports.html', context)
 
 
 @require_GET
@@ -685,12 +890,12 @@ def displaylogs(request):
         {
             'error': error, 'logs': logs,
             'show_email_address': settings.SHOW_AUTHOR_EMAIL_ADDRESS
-        },
-        context_instance=RequestContext(request))
+        })
 
 
 @csrf_exempt
 @require_POST
+@basic_auth_required('results')
 def add_result(request):
     response, error = save_result(request.POST)
     if error:
@@ -698,12 +903,12 @@ def add_result(request):
         return HttpResponseBadRequest(response)
     else:
         create_report_if_enough_data(response[0], response[1], response[2])
-        logger.debug("add_result: completed")
         return HttpResponse("Result data saved successfully", status=202)
 
 
 @csrf_exempt
 @require_POST
+@basic_auth_required('results')
 def add_json_results(request):
     if not request.POST.get('json'):
         return HttpResponseBadRequest("No key 'json' in POST payload")
@@ -711,11 +916,9 @@ def add_json_results(request):
     logger.info("add_json_results request with %d entries." % len(data))
 
     unique_reports = set()
-    i = 0
-    for result in data:
-        i += 1
+    for (i, result) in enumerate(data):
         logger.debug("add_json_results: save item %d." % i)
-        response, error = save_result(result)
+        response, error = save_result(result, update_repo=(i==0))
         if error:
             logger.debug(
                 "add_json_results: could not save item %d because %s" % (
@@ -724,10 +927,41 @@ def add_json_results(request):
         else:
             unique_reports.add(response)
 
-    logger.debug("add_json_results: about to create reports")
     for rep in unique_reports:
         create_report_if_enough_data(rep[0], rep[1], rep[2])
 
-    logger.debug("add_json_results: completed")
-
     return HttpResponse("All result data saved successfully", status=202)
+
+def django_has_content_type():
+    return (django.VERSION[0] > 1 or
+            (django.VERSION[0] == 1 and django.VERSION[1] >= 6))
+
+
+@require_GET
+def makeimage(request):
+    data = request.GET
+
+    try:
+        validate_results_request(data)
+    except ValidationError as err:
+        return HttpResponseBadRequest(str(err))
+
+    try:
+        result_data = get_benchmark_results(data)
+    except ObjectDoesNotExist as err:
+        return HttpResponseNotFound(str(err))
+
+    image_data = gen_image_from_results(
+                    result_data,
+                    int(data['width']) if 'width' in data else None,
+                    int(data['height']) if 'height' in data else None)
+
+    if django_has_content_type():
+        response = HttpResponse(content=image_data, content_type='image/png')
+    else:
+        response = HttpResponse(content=image_data, mimetype='image/png')
+
+    response['Content-Length'] = len(image_data)
+    response['Content-Disposition'] = 'attachment; filename=image.png'
+
+    return response

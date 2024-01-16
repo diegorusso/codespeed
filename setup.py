@@ -2,15 +2,17 @@ from setuptools import setup, find_packages
 
 setup(
     name='codespeed',
-    version='0.11.0a0+pythonspeed',
+    version='0.13.0+pythonspeed',
     author='Miquel Torres',
     author_email='tobami@gmail.com',
     url='https://github.com/tobami/codespeed',
     download_url="https://github.com/tobami/codespeed/tags",
     license='GNU Lesser General Public License version 2.1',
-    keywords=["benchmarking", "visualization"],
-    install_requires=['django>=1.6,<1.9', 'isodate>=0.4.7,<0.6'],
+    keywords=['benchmarking', 'visualization'],
+    install_requires=['django>=1.11<2.2', 'isodate>=0.4.7,<0.6', 'matplotlib>=1.4.3,<2.0'],
     packages=find_packages(exclude=['ez_setup', 'sample_project', 'speed_python']),
+    setup_requires=['setuptools-markdown'],
+    long_description_markdown_filename='README.md',
     description='A web application to monitor and analyze the performance of your code',
     include_package_data=True,
     zip_safe=False,
@@ -26,6 +28,7 @@ setup(
         'Programming Language :: Python :: 3',
         'Programming Language :: Python :: 3.4',
         'Programming Language :: Python :: 3.5',
+        'Programming Language :: Python :: 3.6',
         'Topic :: Internet :: WWW/HTTP :: WSGI :: Application',
     ]
 )

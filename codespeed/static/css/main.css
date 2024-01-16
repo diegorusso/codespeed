@@ -104,8 +104,6 @@ div#presentation div {
     vertical-align: middle;
 }
 div#presentation div.menubox {
-    background-image: url(../images/vgradient.png);
-    background-repeat: repeat-x;
     background-color: #FFFFFF;
     color: black;
     width: 220px;
@@ -166,6 +164,18 @@ div#configbar span {
 div#configbar span.options {
     padding-right: 1.8em; font-size: 90%; white-space: nowrap; }
 div#configbar input { margin-right: 0; vertical-align: middle; }
+
+div#contentnav a {
+    font-size: small;
+    padding-bottom: 0.25em;
+}
+div#contentnav a:hover { text-decoration: underline; }
+div#contentnav #previous {
+    float: left;
+}
+div#contentnav #next {
+    float: right;
+}
 
 div#content, div.about_content {
     margin-left: 14.5em;
@@ -228,6 +238,28 @@ a.togglefold { font-size: normal; color: #000000; }
 a.checkall, a.uncheckall { font-size: small; color: #AAAAAA; }
 
 p.errormessage { line-height: 10em; margin-bottom: 10em; }
+
+/* Home page */
+div#historical {
+  width: 800px;
+  margin: 0 auto;
+  padding-bottom: 5em;
+}
+div#baseline-comparison-plot {
+  width: 750px;
+  height: 400px;
+  margin: 0 auto;
+}
+div#historical-plot {
+  width:600px;
+  height:400px;
+  margin: 0 auto;
+}
+div#historical p { padding-left: 0; }
+div#historical p.plot-caption {
+  height: 1em;
+  font-size: smaller;
+}
 
 /* Changes table layout */
 div#contentwrap { display: table; table-layout: fixed; width: 100%; }

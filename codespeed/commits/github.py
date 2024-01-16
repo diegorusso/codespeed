@@ -8,12 +8,20 @@ git installed, the ability to write files, etc.
 from __future__ import absolute_import
 
 import logging
-import urllib
+try:
+    # Python 3
+    from urllib.request import urlopen
+    from urllib.request import Request
+except ImportError:
+    # Python 2
+    from urllib2 import urlopen
+    from urllib2 import Request
 import re
 import json
 
 import isodate
 from django.core.cache import cache
+from django.conf import settings
 
 from .exceptions import CommitLogError
 
@@ -33,43 +41,75 @@ def updaterepo(project, update=True):
     return
 
 
+def fetch_json(url):
+    json_obj = cache.get(url)
+
+    if json_obj is None:
+        github_oauth_token = getattr(settings, 'GITHUB_OAUTH_TOKEN', None)
+
+        if github_oauth_token:
+            headers = {'Authorization': 'token %s' % (github_oauth_token)}
+        else:
+            headers = {}
+
+        request = Request(url=url, headers=headers)
+
+        try:
+            json_obj = json.load(urlopen(request))
+        except IOError as e:
+            logger.exception("Unable to load %s: %s",
+                             url, e, exc_info=True)
+            raise e
+
+        if "message" in json_obj and \
+           json_obj["message"] in ("Not Found", "Server Error",):
+            # We'll still cache these for a brief period of time to avoid
+            # making too many requests:
+            cache.set(url, json_obj, 300)
+        else:
+            # We'll cache successes for a very long period of time since
+            # SCM diffs shouldn't change:
+            cache.set(url, json_obj, 86400 * 30)
+
+    if "message" in json_obj and \
+       json_obj["message"] in ("Not Found", "Server Error",):
+        raise CommitLogError(
+            "Unable to load %s: %s" % (url, json_obj["message"]))
+
+    return json_obj
+
+
+def retrieve_tag(commit_id, username, project):
+    tags_url = 'https://api.github.com/repos/%s/%s/git/refs/tags' % (
+        username, project)
+
+    tags_json = fetch_json(tags_url)
+    for tag in tags_json:
+        if tag['object']['sha'] == commit_id:
+            return tag['ref'].split("refs/tags/")[-1]
+
+    return ""
+
+
 def retrieve_revision(commit_id, username, project, revision=None):
     commit_url = 'https://api.github.com/repos/%s/%s/git/commits/%s' % (
         username, project, commit_id)
 
-    commit_json = cache.get(commit_url)
-
-    if commit_json is None:
-        try:
-            commit_json = json.load(urllib.urlopen(commit_url))
-        except IOError as e:
-            logger.exception("Unable to load %s: %s",
-                             commit_url, e, exc_info=True)
-            raise e
-
-        if commit_json["message"] in ("Not Found", "Server Error",):
-            # We'll still cache these for a brief period of time to avoid
-            # making too many requests:
-            cache.set(commit_url, commit_json, 300)
-        else:
-            # We'll cache successes for a very long period of time since
-            # SCM diffs shouldn't change:
-            cache.set(commit_url, commit_json, 86400 * 30)
-
-    if commit_json["message"] in ("Not Found", "Server Error",):
-        raise CommitLogError(
-            "Unable to load %s: %s" % (commit_url, commit_json["message"]))
+    commit_json = fetch_json(commit_url)
 
     date = isodate.parse_datetime(commit_json['committer']['date'])
+    tag = retrieve_tag(commit_id, username, project)
 
     if revision:
         # Overwrite any existing data we might have for this revision since
         # we never want our records to be out of sync with the actual VCS:
-
-        # We need to convert the timezone-aware date to a naive (i.e.
-        # timezone-less) date in UTC to avoid killing MySQL:
-        revision.date = date.astimezone(
-            isodate.tzinfo.Utc()).replace(tzinfo=None)
+        if not getattr(settings, 'USE_TZ_AWARE_DATES', False):
+            # We need to convert the timezone-aware date to a naive (i.e.
+            # timezone-less) date in UTC to avoid killing MySQL:
+            logger.debug('USE_TZ_AWARE_DATES setting is set to False, '
+                         'converting datetime object to a naive one')
+            revision.date = date.astimezone(
+                isodate.tzinfo.Utc()).replace(tzinfo=None)
         revision.author = commit_json['author']['name']
         revision.message = commit_json['message']
         revision.full_clean()
@@ -82,7 +122,8 @@ def retrieve_revision(commit_id, username, project, revision=None):
             'author_email': commit_json['author']['email'],
             'commitid':     commit_json['sha'],
             'short_commit_id': commit_json['sha'][0:7],
-            'parents':      commit_json['parents']}
+            'parents':      commit_json['parents'],
+            'tag':          tag}
 
 
 def getlogs(endrev, startrev):

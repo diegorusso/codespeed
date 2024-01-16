@@ -10,5 +10,4 @@ speed_python/secret_key
 override
 build
 dist
-codespeed.egg-info/
-
+*.egg-info

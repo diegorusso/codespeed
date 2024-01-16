@@ -1,6 +1,5 @@
 # -*- coding: utf-8 -*-
 """Subversion commit logs support"""
-# -*- coding: utf-8 -*-
 from __future__ import absolute_import
 
 from datetime import datetime
@@ -13,6 +12,17 @@ def updaterepo(project):
     return [{'error': False}]
 
 
+def get_tag(rev_num, repo_path, client):
+    tags_url = repo_path + '/tags'
+    tags = client.ls(tags_url)
+
+    for tag in tags:
+        if 'created_rev' in tag and tag['created_rev'].number == rev_num:
+            if 'name' in tag:
+                return tag['name'].split('/')[-1]
+    return ''
+
+
 def getlogs(newrev, startrev):
     import pysvn
 
@@ -21,7 +31,9 @@ def getlogs(newrev, startrev):
     loglimit = 200
 
     def get_login(realm, username, may_save):
-        return True, newrev.branch.project.repo_user, newrev.branch.project.repo_pass, False
+        repo_user = newrev.branch.project.repo_user
+        repo_pass = newrev.branch.project.repo_pass
+        return True, repo_user, repo_pass, False
 
     client = pysvn.Client()
     if newrev.branch.project.repo_user != "":
@@ -32,7 +44,7 @@ def getlogs(newrev, startrev):
             client.log(
                 newrev.branch.project.repo_path,
                 revision_start=pysvn.Revision(
-                        pysvn.opt_revision_kind.number, startrev.commitid
+                    pysvn.opt_revision_kind.number, startrev.commitid
                 ),
                 revision_end=pysvn.Revision(
                     pysvn.opt_revision_kind.number, newrev.commitid
@@ -56,8 +68,10 @@ def getlogs(newrev, startrev):
             author = ""
         date = datetime.fromtimestamp(log.date).strftime("%Y-%m-%d %H:%M:%S")
         message = log.message
+        tag = get_tag(log.revision.number,
+                      newrev.branch.project.repo_path, client)
         # Add log unless it is the last commit log, which has already been tested
         logs.append({
             'date': date, 'author': author, 'message': message,
-            'commitid': log.revision.number})
+            'commitid': log.revision.number, 'tag': tag})
     return logs

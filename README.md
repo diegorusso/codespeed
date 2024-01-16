@@ -1,15 +1,16 @@
 # Codespeed
 [![Build Status](https://travis-ci.org/tobami/codespeed.png?branch=master)](https://travis-ci.org/tobami/codespeed)
+[![PyPI version](https://img.shields.io/pypi/v/codespeed.svg)](https://pypi.python.org/pypi/codespeed)
 
 Codespeed is a web application to monitor and analyze the performance of your code.
 
-Known to be used by [PyPy](http://speed.pypy.org), [Twisted](http://speed.twistedmatrix.com) and others.
+Known to be used by [CPython](https://speed.python.org), [PyPy](http://speed.pypy.org), [Twisted](http://speed.twistedmatrix.com) and others.
 
 For an overview of some application concepts see the [wiki page](https://github.com/tobami/codespeed/wiki/Overview)
 
-# Installation
+## Installation
 
-You will need Python 2.7 or 3.4+.
+You will need Python 2.7 or 3.5+.
 
 To install dependencies and the codespeed Django app:
 
@@ -35,7 +36,10 @@ can take a long time. Please be patient.
 
         python manage.py migrate
 
-* Create an admin user in the process.
+* Create an admin user:
+
+        python manage.py createsuperuser
+
 * For testing purposes, you can now start the development server:
 
         python manage.py runserver 8000
@@ -46,9 +50,9 @@ The codespeed installation can now be accessed by navigating to `http://localhos
 modify `sample_project/settings.py` and set `DEBUG = False`.
 [`sample_project/README.md`](https://github.com/tobami/codespeed/tree/master/sample_project/README.md) also describes some production settings.
 
-# Codespeed configuration
+## Codespeed configuration
 
-## Using the provided test data
+### Using the provided test data
 
 If you want to test drive Codespeed, you can use the testdata.json fixtures to have a working data set to browse.
 
@@ -56,7 +60,7 @@ If you want to test drive Codespeed, you can use the testdata.json fixtures to h
 
         ./manage.py loaddata codespeed/fixtures/testdata.json
 
-## Starting from scratch
+### Starting from scratch
 
 Before you can start saving (and displaying) data, you need to first create an
 environment and define a default project.
@@ -74,7 +78,7 @@ field will be shown in the Changes and Timeline views.
 
 **Note**: Git and Mercurial need to locally clone the repository. That means that your `sample_project/repos` directory will need to be owned by the server. In the case of a typical Apache installation, you'll need to type `sudo chown www-data:www-data sample_project/repos`
 
-# Saving data
+## Saving data
 
 Data is saved POSTing to `http://localhost:8000/result/add/`.
 
@@ -91,9 +95,9 @@ environment. It must always exist or the data won't be saved (that is the reason
 it is described as a necessary step in the previous "Codespeed configuration"
 section).
 
-# Further customization
+## Further customization
 
-## Custom Settings
+### Custom Settings
 
 You may override any of the default settings by setting them in
 `sample_project/settings.py`. It is strongly recommended that you only override the
@@ -153,18 +157,20 @@ same name.
             </div>
         {% endblock %}
 
+### Baselines and Comparison view executables
 
-## Baselines and Comparison view executables
 * The results associated to an executable and a revision which has a non blank
   tag field will be listed as a baseline option in the Timeline view.
-* Additionaly, the Comparison view will show the results of the latest revision
+* Additionally, the Comparison view will show the results of the latest revision
   of projects being tracked as an executable as well.
 
-## Defaults
+### Defaults
+
 The file `sample_project/settings.py` can contain customizations of
 several parameters (the file includes comments with full examples).
 
-### General settings:
+### General settings
+
 * `WEBSITE_NAME`: The RSS results feed will use this parameter as the site name
 * `DEF_BASELINE`: Defines which baseline option will be chosen as default in
   the Timeline and Changes views.
@@ -173,23 +179,35 @@ several parameters (the file includes comments with full examples).
 * `CHANGE_THRESHOLD`
 * `TREND_THRESHOLD`
 
+### Home Page
+
+The main customization for the homepage is to display either the reports
+(daily changes) or the historical graphs (improvement over time).
+
+* `SHOW_REPORTS`: If set to `True` displays a table and RSS feed with the latest results
+* `SHOW_HISTORICAL`: Displays two graphs comparing tagged and latest versions of the default executable and project to the configured baseline.
+
+  To activate the historical graphs you will need to set the following settings (using values that work with the test data):
+
+  * `DEF_BASELINE = {'executable': 'baseExe', 'revision': '444'}`
+  * `DEF_EXECUTABLE = "myexe O3 64bits"`
+
 ### Changes View
+
 * `DEF_EXECUTABLE`: in the Changes view, a random executable is chosen as
   default. It that doesn't suite you, you can specify here which one should be
   selected. You need to specify its id (since the name alone is not unique).
 
 ### Timeline View
+
 * `DEF_BENCHMARK`: Defines the default timeline view. Possible values:
-    * `None`: will show a grid of plot thumbnails, or a text message when the number of plots exceeds 30
-    * `grid`: will always show as default the grid of plots
-    * `show_none`: will show a text message (better default when there are lots of benchmarks)
-    * `mybench`: will select benchmark named "mybench"
-* `DEF_BRANCH`: Defines the default branch to be used when calculating timeline and changes data for presentation.  Example values:
-    * `default`: the default value, and usually mercurial's default branch
-    * `master`: usually git's default branch
-    * `trunk`: usually SVN's default branch
+  * `None`: will show a grid of plot thumbnails, or a text message when the number of plots exceeds 30
+  * `grid`: will always show as default the grid of plots
+  * `show_none`: will show a text message (better default when there are lots of benchmarks)
+  * `mybench`: will select benchmark named "mybench"
 
 ### Comparison View
+
 * `CHART_TYPE`: Chooses the default chart type (normal bars, stacked bars or
   relative bars)
 * `NORMALIZATION`: Defines whether normalization should be enabled as default
@@ -206,8 +224,21 @@ COMP_EXECUTABLES = [
     ('myexe', 'L'),
 ]
 ```
+* `COMPARISON_COMMIT_TAGS: Defines a list of tags to display on the comparison page. This comes
+  handy when there are a lot of tags. It defaults to ``None`` which means display all the available
+  tags.
+
+### VCS Provider Specific Settings
+
+#### Github
+
+* ``GITHUB_OAUTH_TOKEN`` - Github oAuth token to use for authenticating against
+  the Github API. If not provided, it will default to unauthenticated API requests
+  which have low rate limits so an exception may be thrown when retrieving info
+  from the Github API due to the rate limit being reached.
 
 ## Getting help
+
 For help regarding the configuration of Codespeed, or to share any ideas or
 suggestions you may have, please post on Codespeed's [discussion
 group](http://groups.google.com/group/codespeed)

@@ -12,7 +12,7 @@ DEF_BRANCH = "master" # Defines the default branch to be used.
 
 DEF_BASELINE = None # Which executable + revision should be default as a baseline
                     # Given as the name of the executable and commitid of the revision
-                    # Example: defaultbaseline = {'executable': 'myexe', 'revision': '21'}
+                    # Example: DEF_BASELINE = {'executable': 'baseExe', 'revision': '444'}
 
 TREND = 10 # Default value for the depth of the trend
            # Used by reports for the latest runs and changes view
@@ -24,10 +24,14 @@ CHANGE_THRESHOLD = 3.0
 # over a number of revisions is significant
 TREND_THRESHOLD = 5.0
 
+## Home view options ##
+SHOW_REPORTS = True # Show report tables
+SHOW_HISTORICAL = False # Show historical graphs
+
 ## Changes view options ##
 DEF_EXECUTABLE = None # Executable that should be chosen as default in the changes view
                       # Given as the name of the executable.
-                      # Example: defaultexecutable = "myexe"
+                      # Example: DEF_EXECUTABLE = "myexe O3 64bits"
 
 SHOW_AUTHOR_EMAIL_ADDRESS = True # Whether to show the authors email address in the
                                  # changes log
@@ -43,6 +47,17 @@ DEF_BENCHMARK = None   # Default selected benchmark. Possible values:
 
 DEF_TIMELINE_LIMIT = 50  # Default number of revisions to be plotted
                          # Possible values 10,50,200,1000
+
+TIMELINE_GRID_LIMIT = 30  # Number of benchmarks beyond which the timeline view
+                          # is disabled as default setting. Too many benchmarks make
+                          # the view slow, and put load on the database, which may be
+                          # undeseriable.
+
+TIMELINE_GRID_PAGING = 4   # Number of benchmarks to be send in one grid request
+                           # May be adjusted to improve the performance of the timeline grid view.
+                           # If a large number of benchmarks is in the system,
+                           # and the database is not fast, it can take a long time
+                           # to send all results.
 
 #TIMELINE_BRANCHES = True # NOTE: Only the default branch is currently shown
                          # Get timeline results for specific branches
@@ -67,4 +82,29 @@ COMP_EXECUTABLES = None  # Which executable + revision should be checked as defa
                          #     ('myexe', '21df2423ra'),
                          #     ('myexe', 'L'),]
 
+COMPARISON_COMMIT_TAGS = None  # List of tag names which should be included in the executables list
+                               # on the comparision page.
+                               # This comes handy where project contains a lot of tags, but you only want
+                               # to list subset of them on the comparison page.
+                               # If this value is set to None (default value), all the available tags will
+                               # be included.
+
+TIMELINE_EXECUTABLE_NAME_MAX_LEN = 22  # Maximum length of the executable name used in the
+                                       # Changes and Timeline view. If the name is longer, the name
+                                       # will be truncated and "..." will be added at the end.
+
+COMPARISON_EXECUTABLE_NAME_MAX_LEN = 20  # Maximum length of the executable name  used in the
+                                         # Coomparison view. If the name is longer, the name
+
 USE_MEDIAN_BANDS = True # True to enable median bands on Timeline view
+
+
+ALLOW_ANONYMOUS_POST = True  # Whether anonymous users can post results
+REQUIRE_SECURE_AUTH = True  # Whether auth needs to be over a secure channel
+
+US_TZ_AWARE_DATES = False  # True to use timezone aware datetime objects with Github provider.
+                           # NOTE: Some database backends may not support tz aware dates.
+
+GITHUB_OAUTH_TOKEN = None  # Github oAuth token to use when using Github repo type. If not
+                           # specified, it will utilize unauthenticated requests which have
+                           # low rate limits.

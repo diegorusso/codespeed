@@ -2,8 +2,12 @@
 from __future__ import absolute_import
 
 from django.conf import settings
+from django.core.exceptions import ObjectDoesNotExist
+from django.shortcuts import get_object_or_404
 
-from codespeed.models import Executable, Revision, Project, Branch
+from codespeed.models import (
+    Executable, Revision, Project, Branch,
+    Environment, Benchmark, Result)
 
 
 def get_default_environment(enviros, data, multi=False):
@@ -45,7 +49,12 @@ def get_default_environment(enviros, data, multi=False):
         return defaultenviros[0]
 
 
-def getbaselineexecutables():
+def getbaselineexecutables(include_tags=None):
+    """
+    :param include_tags: A list of tags to include in the result. If set to
+                         None,, it will include all the available tags.
+    :type include_tags: ``list``
+    """
     baseline = [{
         'key': "none",
         'name': "None",
@@ -53,14 +62,18 @@ def getbaselineexecutables():
         'revision': "none",
     }]
     executables = Executable.objects.select_related('project')
-    revs = Revision.objects.exclude(tag="").select_related('branch__project')
-    maxlen = 22
+
+    if include_tags is not None:
+        revs = Revision.objects.filter(tag__in=include_tags)
+    else:
+        revs = Revision.objects.exclude(tag="")
+
+    revs = revs.select_related('branch__project')
+
     for rev in revs:
         # Add executables that correspond to each tagged revision.
         for exe in [e for e in executables if e.project == rev.branch.project]:
-            exestring = str(exe)
-            if len(exestring) > maxlen:
-                exestring = str(exe)[0:maxlen] + "..."
+            exestring = get_sanitized_executable_name_for_timeline_view(exe)
             name = exestring + " " + rev.tag
             key = str(exe.id) + "+" + str(rev.id)
             baseline.append({
@@ -106,21 +119,23 @@ def getdefaultexecutable():
 
 
 def getcomparisonexes():
+    comparison_commit_tags = getattr(settings, 'COMPARISON_COMMIT_TAGS', None)
+
     all_executables = {}
     exekeys = []
-    baselines = getbaselineexecutables()
+    baselines = getbaselineexecutables(include_tags=comparison_commit_tags)
+
     for proj in Project.objects.all():
         executables = []
         executablekeys = []
-        maxlen = 20
         # add all tagged revs for any project
         for exe in baselines:
-            if exe['key'] is not "none" and exe['executable'].project == proj:
+            if exe['key'] != "none" and exe['executable'].project == proj:
                 executablekeys.append(exe['key'])
                 executables.append(exe)
 
         # add latest revs of the project
-        branches = Branch.objects.filter(project=proj)
+        branches = Branch.objects.filter(project=proj, display_on_comparison_page=True)
         for branch in branches:
             try:
                 rev = Revision.objects.filter(branch=branch).latest('date')
@@ -130,11 +145,9 @@ def getcomparisonexes():
             # because we already added tagged revisions
             if rev.tag == "":
                 for exe in Executable.objects.filter(project=proj):
-                    exestring = str(exe)
-                    if len(exestring) > maxlen:
-                        exestring = str(exe)[0:maxlen] + "..."
+                    exestring = get_sanitized_executable_name_for_comparison_view(exe)
                     name = exestring + " latest"
-                    if branch.name != 'default':
+                    if branch.name != proj.default_branch:
                         name += " in branch '" + branch.name + "'"
                     key = str(exe.id) + "+L+" + branch.name
                     executablekeys.append(key)
@@ -147,3 +160,156 @@ def getcomparisonexes():
         all_executables[proj] = executables
         exekeys += executablekeys
     return all_executables, exekeys
+
+
+def get_benchmark_results(data):
+    environment = Environment.objects.get(name=data['env'])
+    project = Project.objects.get(name=data['proj'])
+    executable = Executable.objects.get(name=data['exe'], project=project)
+    branch = Branch.objects.get(name=data['branch'], project=project)
+    benchmark = Benchmark.objects.get(name=data['ben'])
+
+    number_of_revs = int(data.get('revs', 10))
+
+    baseline_commit_name = (data['base_commit'] if 'base_commit' in data
+                            else None)
+    relative_results = (
+        ('relative' in data and data['relative'] in ['1', 'yes']) or
+        baseline_commit_name is not None)
+
+    result_query = Result.objects.filter(
+        benchmark=benchmark
+    ).filter(
+        environment=environment
+    ).filter(
+        executable=executable
+    ).filter(
+        revision__project=project
+    ).filter(
+        revision__branch=branch
+    ).select_related(
+        "revision"
+    ).order_by('-date')[:number_of_revs]
+
+    if len(result_query) == 0:
+        raise ObjectDoesNotExist("No results were found!")
+
+    result_list = [item for item in result_query]
+    result_list.reverse()
+
+    if relative_results:
+        ref_value = result_list[0].value
+
+    if baseline_commit_name is not None:
+        baseline_env = environment
+        baseline_proj = project
+        baseline_exe = executable
+        baseline_branch = branch
+
+        if 'base_env' in data:
+            baseline_env = Environment.objects.get(name=data['base_env'])
+        if 'base_proj' in data:
+            baseline_proj = Project.objects.get(name=data['base_proj'])
+        if 'base_exe' in data:
+            baseline_exe = Executable.objects.get(name=data['base_exe'],
+                                                  project=baseline_proj)
+        if 'base_branch' in data:
+            baseline_branch = Branch.objects.get(name=data['base_branch'],
+                                                 project=baseline_proj)
+
+        base_data = Result.objects.get(
+                                benchmark=benchmark,
+                                environment=baseline_env,
+                                executable=baseline_exe,
+                                revision__project=baseline_proj,
+                                revision__branch=baseline_branch,
+                                revision__commitid=baseline_commit_name)
+
+        ref_value = base_data.value
+
+    if relative_results:
+        for element in result_list:
+            element.value = (100 * (element.value - ref_value)) / ref_value
+
+    return {
+            'environment': environment,
+            'project': project,
+            'executable': executable,
+            'branch': branch,
+            'benchmark': benchmark,
+            'results': result_list,
+            'relative': relative_results,
+           }
+
+
+def get_num_revs_and_benchmarks(data):
+    if data['ben'] == 'grid':
+        benchmarks = Benchmark.objects.all().order_by('name')
+        number_of_revs = 15
+    elif data['ben'] == 'show_none':
+        benchmarks = []
+        number_of_revs = int(data.get('revs', 10))
+    else:
+        benchmarks = [get_object_or_404(Benchmark, name=data['ben'])]
+        number_of_revs = int(data.get('revs', 10))
+    return number_of_revs, benchmarks
+
+
+def get_stats_with_defaults(res):
+    val_min = ""
+    if res.val_min is not None:
+        val_min = res.val_min
+    val_max = ""
+    if res.val_max is not None:
+        val_max = res.val_max
+    q1 = ""
+    if res.q1 is not None:
+        q1 = res.q1
+    q3 = ""
+    if res.q3 is not None:
+        q3 = res.q3
+    return q1, q3, val_max, val_min
+
+
+def get_sanitized_executable_name_for_timeline_view(executable):
+    """
+    Return sanitized executable name which is used in the sidebar in the
+    Timeline and Changes view.
+
+    If the name is longer than settings.TIMELINE_EXECUTABLE_NAME_MAX_LEN,
+    the name will be truncated to that length and "..." appended to it.
+
+    :param executable: Executable object.
+    :type executable: :class:``codespeed.models.Executable``
+
+    :return: ``str``
+    """
+    maxlen = getattr(settings, 'TIMELINE_EXECUTABLE_NAME_MAX_LEN', 20)
+
+    exestring = str(executable)
+    if len(exestring) > maxlen:
+        exestring = str(executable)[0:maxlen] + "..."
+
+    return exestring
+
+
+def get_sanitized_executable_name_for_comparison_view(executable):
+    """
+    Return sanitized executable name which is used in the sidebar in the
+    comparison view.
+
+    If the name is longer than settings.COMPARISON_EXECUTABLE_NAME_MAX_LEN,
+    the name will be truncated to that length and "..." appended to it.
+
+    :param executable: Executable object.
+    :type executable: :class:``codespeed.models.Executable``
+
+    :return: ``str``
+    """
+    maxlen = getattr(settings, 'COMPARISON_EXECUTABLE_NAME_MAX_LEN', 22)
+
+    exestring = str(executable)
+    if len(exestring) > maxlen:
+        exestring = str(executable)[0:maxlen] + "..."
+
+    return exestring

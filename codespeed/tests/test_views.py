@@ -3,17 +3,18 @@ from datetime import datetime, timedelta
 import copy
 import json
 
-from django.test import TestCase
-from django.core.urlresolvers import reverse
+from django.test import TestCase, override_settings
+from django.urls import reverse
 
 from codespeed.models import (Project, Benchmark, Revision, Branch, Executable,
                               Environment, Result, Report)
 
 
+@override_settings(ALLOW_ANONYMOUS_POST=True)
 class TestAddResult(TestCase):
 
     def setUp(self):
-        self.path = reverse('codespeed.views.add_result')
+        self.path = reverse('add-result')
         self.e = Environment.objects.create(name='Dual Core',
                                             cpu='Core 2 Duo 8200')
         temp = datetime.today()
@@ -108,7 +109,8 @@ class TestAddResult(TestCase):
             response = self.client.post(self.path, self.data)
             self.assertEquals(response.status_code, 400)
             self.assertEquals(
-                response.content.decode(), 'Value for key "' + key + '" empty in request')
+                response.content.decode(),
+                'Value for key "' + key + '" empty in request')
             self.data[key] = backup
 
     def test_missing_argument(self):
@@ -119,7 +121,8 @@ class TestAddResult(TestCase):
             response = self.client.post(self.path, self.data)
             self.assertEquals(response.status_code, 400)
             self.assertEquals(
-                response.content.decode(), 'Key "' + key + '" missing from request')
+                response.content.decode(),
+                'Key "' + key + '" missing from request')
             self.data[key] = backup
 
     def test_report_is_not_created(self):
@@ -156,18 +159,21 @@ class TestAddResult(TestCase):
         modified_data['executable'] = "My new executable"
         response = self.client.post(self.path, modified_data)
         self.assertEquals(response.status_code, 202)
-        self.assertEquals(response.content.decode(), "Result data saved successfully")
+        self.assertEquals(
+            response.content.decode(), "Result data saved successfully")
 
 
+@override_settings(ALLOW_ANONYMOUS_POST=True)
 class TestAddJSONResults(TestCase):
 
     def setUp(self):
-        self.path = reverse('codespeed.views.add_json_results')
+        self.path = reverse('add-json-results')
         self.e = Environment(name='bigdog', cpu='Core 2 Duo 8200')
         self.e.save()
         temp = datetime.today()
         self.cdate = datetime(
-            temp.year, temp.month, temp.day, temp.hour, temp.minute, temp.second)
+            temp.year, temp.month, temp.day, temp.hour, temp.minute,
+            temp.second)
 
         self.data = [
             {'commitid': '123',
@@ -266,7 +272,8 @@ class TestAddJSONResults(TestCase):
                                     {'json': json.dumps(self.data)})
 
         self.assertEquals(response.status_code, 400)
-        self.assertEquals(response.content.decode(), "Environment " + bad_name + " not found")
+        self.assertEquals(
+            response.content.decode(), "Environment " + bad_name + " not found")
         data['environment'] = 'bigdog'
 
     def test_empty_argument(self):
@@ -278,7 +285,9 @@ class TestAddJSONResults(TestCase):
             response = self.client.post(self.path,
                                         {'json': json.dumps(self.data)})
             self.assertEquals(response.status_code, 400)
-            self.assertEquals(response.content.decode(), 'Value for key "' + key + '" empty in request')
+            self.assertEquals(
+                response.content.decode(),
+                'Value for key "' + key + '" empty in request')
             data[key] = backup
 
     def test_missing_argument(self):
@@ -290,7 +299,8 @@ class TestAddJSONResults(TestCase):
             response = self.client.post(self.path,
                                         {'json': json.dumps(self.data)})
             self.assertEquals(response.status_code, 400)
-            self.assertEquals(response.content.decode(), 'Key "' + key + '" missing from request')
+            self.assertEquals(
+                response.content.decode(), 'Key "' + key + '" missing from request')
             data[key] = backup
 
     def test_report_is_created(self):
@@ -323,61 +333,73 @@ class TestTimeline(TestCase):
         results = benchmarks[0].results.all()
         self.assertEquals(len(results), 8)
 
+    def test_timeline(self):
+        path = reverse('timeline')
+        response = self.client.get(path)
+        self.assertEquals(response.status_code, 200)
+        responsedata = response.content.decode()
+        self.assertIn('My Own Title\n: Timeline', responsedata)
+
     def test_gettimelinedata(self):
         """Test that gettimelinedata returns correct timeline data
         """
-        path = reverse('codespeed.views.gettimelinedata')
+        path = reverse('gettimelinedata')
         data = {
-            "exe":  "1,2",
+            "exe": "1,2",
             "base": "2+4",
-            "ben":  "float",
-            "env":  "1",
-            "revs": 2
+            "ben": "float",
+            "env": "1",
+            "revs": "2"
         }
         response = self.client.get(path, data)
         self.assertEquals(response.status_code, 200)
-        responsedata = json.loads(response.content.decode())
+        responsedata = json.loads(response.getvalue().decode())
+
         self.assertEquals(
             responsedata['error'], "None", "there should be no errors")
         self.assertEquals(
             len(responsedata['timelines']), 1, "there should be 1 benchmark")
         self.assertEquals(
-            len(responsedata['timelines'][0]['branches']['default']),
+            len(responsedata['timelines'][0]['branches']),
             2,
-            "there should be 2 timelines")
+            "there should be 2 branches")
         self.assertEquals(
-            len(responsedata['timelines'][0]['branches']['default']['1']),
+            len(responsedata['timelines'][0]['branches']['default']),
+            1,
+            "there should be 1 timeline for master")
+        self.assertEquals(
+            len(responsedata['timelines'][0]['branches']['master']['1']),
             2,
             "There are 2 datapoints")
         self.assertEquals(
-            responsedata['timelines'][0]['branches']['default']['1'][1],
-            [u'2011/04/13 17:04:22 ', 2000.0, 1.11111, u'2', u'default'],
-            "Wrong data returned: ")
+            responsedata['timelines'][0]['branches']['master']['1'][1],
+            [u'2011/04/13 17:04:22 ', 2000.0, 1.11111, u'2', u'', u'master'])
 
 
+@override_settings(ALLOW_ANONYMOUS_POST=True)
 class TestReports(TestCase):
 
     def setUp(self):
         Environment.objects.create(name='Dual Core', cpu='Core 2 Duo 8200')
         self.data = {
             'commitid': 'abcd1',
-            'branch': 'default',
+            'branch': 'master',
             'project': 'MyProject',
             'executable': 'myexe O3 64bits',
             'benchmark': 'float',
             'environment': 'Dual Core',
             'result_value': 200,
         }
-        resp = self.client.post(reverse('codespeed.views.add_result'),
+        resp = self.client.post(reverse('add-result'),
                                 self.data)
         self.assertEqual(resp.status_code, 202)
         self.data['commitid'] = "abcd2"
         self.data['result_value'] = 150
-        self.client.post(reverse('codespeed.views.add_result'), self.data)
+        self.client.post(reverse('add-result'), self.data)
         self.assertEqual(resp.status_code, 202)
 
     def test_reports(self):
-        response = self.client.get(reverse('codespeed.views.reports'))
+        response = self.client.get(reverse('reports'))
 
         self.assertEqual(response.status_code, 200)
         content = response.content.decode()
@@ -386,6 +408,16 @@ class TestReports(TestCase):
         self.assertIn(self.data['commitid'], content)
 
     def test_reports_post_returns_405(self):
-        response = self.client.post(reverse('codespeed.views.reports'), {})
+        response = self.client.post(reverse('reports'), {})
 
         self.assertEqual(response.status_code, 405)
+
+
+class TestFeeds(TestCase):
+
+    def test_latest_result_feed(self):
+        response = self.client.get(reverse('latest-results'))
+
+        self.assertEqual(response.status_code, 200)
+        content = response.content.decode()
+        self.assertIn('<atom:link ', content)

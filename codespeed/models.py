@@ -1,16 +1,19 @@
 # -*- coding: utf-8 -*-
 from __future__ import absolute_import, unicode_literals
 
+import logging
 import os
 import json
 
 from django.core.exceptions import ValidationError
-from django.core.urlresolvers import reverse
+from django.urls import reverse
 from django.conf import settings
 from django.db import models
 from django.utils.encoding import python_2_unicode_compatible
 
 from .commits.github import GITHUB_URL_RE
+
+logger = logging.getLogger(__name__)
 
 
 @python_2_unicode_compatible
@@ -39,6 +42,7 @@ class Project(models.Model):
     commit_browsing_url = models.CharField("Commit browsing URL",
                                            blank=True, max_length=200)
     track = models.BooleanField("Track changes", default=True)
+    default_branch = models.CharField(max_length=32)
 
     def __str__(self):
         return self.name
@@ -78,10 +82,39 @@ class Project(models.Model):
         super(Project, self).save(*args, **kwargs)
 
 
+class HistoricalValue(object):
+    def __init__(self, name=None, val=0, color='none'):
+        self.name = name
+        self.val = val
+        self.color = color
+
+    def update_if_less_important_than(self, val, color, name):
+        if self.is_less_important_than(val, color):
+            # Do update biggest total change
+            self.val = val
+            self.color = color
+            self.name = name
+
+    def is_less_important_than(self, val, color):
+        if color == "red" and self.color != "red":
+            return True
+        elif color == "red" and abs(val) > abs(self.val):
+            return True
+        elif (color == "green" and self.color != "red" and
+                abs(val) > abs(self.val)):
+            return True
+        else:
+            return False
+
+
 @python_2_unicode_compatible
 class Branch(models.Model):
-    name = models.CharField(max_length=20)
-    project = models.ForeignKey(Project, related_name="branches")
+    name = models.CharField(max_length=32)
+    project = models.ForeignKey(
+        Project, on_delete=models.CASCADE, related_name="branches")
+    display_on_comparison_page = models.BooleanField(
+        "True to display this branch on the comparison page",
+        default=True)
 
     def __str__(self):
         return self.project.name + ":" + self.name
@@ -98,10 +131,12 @@ class Revision(models.Model):
     tag = models.CharField(max_length=20, blank=True)
     date = models.DateTimeField(null=True)
     message = models.TextField(blank=True)
-    project = models.ForeignKey(Project, related_name="revisions",
-                                null=True, blank=True)
+    project = models.ForeignKey(
+        Project, on_delete=models.CASCADE, related_name="revisions",
+        null=True, blank=True)
     author = models.CharField(max_length=100, blank=True)
-    branch = models.ForeignKey(Branch, related_name="revisions")
+    branch = models.ForeignKey(
+        Branch, on_delete=models.CASCADE, related_name="revisions")
 
     def get_short_commitid(self):
         return self.commitid[:10]
@@ -115,7 +150,7 @@ class Revision(models.Model):
         else:
             date = self.date.strftime("%b %d, %H:%M")
         string = " - ".join(filter(None, (date, self.commitid, self.tag)))
-        if self.branch.name != settings.DEF_BRANCH:
+        if self.branch.name != self.branch.project.default_branch:
             string += " - " + self.branch.name
         return string
 
@@ -127,7 +162,7 @@ class Revision(models.Model):
             raise ValidationError("Invalid commit id %s" % self.commitid)
         if self.branch.project.repo_type == "S":
             try:
-                long(self.commitid)
+                int(self.commitid)
             except ValueError:
                 raise ValidationError("Invalid SVN commit id %s" % self.commitid)
 
@@ -136,7 +171,8 @@ class Revision(models.Model):
 class Executable(models.Model):
     name = models.CharField(max_length=30)
     description = models.CharField(max_length=200, blank=True)
-    project = models.ForeignKey(Project, related_name="executables")
+    project = models.ForeignKey(
+        Project, on_delete=models.CASCADE, related_name="executables")
 
     class Meta:
         unique_together = ('name', 'project')
@@ -158,7 +194,7 @@ class Benchmark(models.Model):
 
     name = models.CharField(unique=True, max_length=100)
     parent = models.ForeignKey(
-        'self', verbose_name="parent",
+        'self', on_delete=models.CASCADE, verbose_name="parent",
         help_text="allows to group benchmarks in hierarchies",
         null=True, blank=True, default=None)
     benchmark_type = models.CharField(max_length=1, choices=B_TYPES, default='C')
@@ -201,10 +237,14 @@ class Result(models.Model):
     q1 = models.FloatField(blank=True, null=True)
     q3 = models.FloatField(blank=True, null=True)
     date = models.DateTimeField(blank=True, null=True)
-    revision = models.ForeignKey(Revision, related_name="results")
-    executable = models.ForeignKey(Executable, related_name="results")
-    benchmark = models.ForeignKey(Benchmark, related_name="results")
-    environment = models.ForeignKey(Environment, related_name="results")
+    revision = models.ForeignKey(
+        Revision, on_delete=models.CASCADE, related_name="results")
+    executable = models.ForeignKey(
+        Executable, on_delete=models.CASCADE, related_name="results")
+    benchmark = models.ForeignKey(
+        Benchmark, on_delete=models.CASCADE, related_name="results")
+    environment = models.ForeignKey(
+        Environment, on_delete=models.CASCADE, related_name="results")
 
     def __str__(self):
         return u"%s: %s" % (self.benchmark.name, self.value)
@@ -215,9 +255,12 @@ class Result(models.Model):
 
 @python_2_unicode_compatible
 class Report(models.Model):
-    revision = models.ForeignKey(Revision, related_name="reports")
-    environment = models.ForeignKey(Environment, related_name="reports")
-    executable = models.ForeignKey(Executable, related_name="reports")
+    revision = models.ForeignKey(
+        Revision, on_delete=models.CASCADE, related_name="reports")
+    environment = models.ForeignKey(
+        Environment, on_delete=models.CASCADE, related_name="reports")
+    executable = models.ForeignKey(
+        Executable, on_delete=models.CASCADE, related_name="reports")
     summary = models.CharField(max_length=64, blank=True)
     colorcode = models.CharField(max_length=10, default="none")
     _tablecache = models.TextField(blank=True)
@@ -230,11 +273,44 @@ class Report(models.Model):
 
     def save(self, *args, **kwargs):
         tablelist = self.get_changes_table(force_save=True)
-        max_change, max_change_ben, max_change_color = 0, None, "none"
-        max_trend, max_trend_ben, max_trend_color = 0, None, "none"
-        average_change, average_change_units, average_change_color = 0, None, "none"
-        average_trend, average_trend_units, average_trend_color = 0, None, "none"
+        self.reinitialize()
+        changes = self.aggregate_significant_changes(tablelist)
+        self.update_to_highest_priority_change(changes)
 
+        super(Report, self).save(*args, **kwargs)
+
+    def update_to_highest_priority_change(self, changes):
+        average_change = changes['average_change']
+        max_change = changes['max_change']
+        average_trend = changes['average_trend']
+        max_trend = changes['max_trend']
+
+        # Average change
+        if average_change.color != "none":
+            self.update_summary("Average {} {}", average_change)
+            self.colorcode = average_change.color
+
+        # Single benchmark change
+        elif max_change.color != "none":
+            self.update_summary("{} {}", max_change)
+            self.colorcode = max_change.color
+
+        # Average trend
+        elif average_trend.color != "none":
+            self.update_summary("Average {} trend {}", average_trend)
+            self.update_by_trend_color(average_trend.color)
+
+        # Single benchmark trend
+        elif max_trend.color != "none":
+            self.update_summary("{} trend {}", max_trend)
+            # use lighter colors for trend results:
+            self.update_by_trend_color(max_trend.color)
+
+    def reinitialize(self):
+        self.summary = ""
+        self.colorcode = "none"
+
+    def aggregate_significant_changes(self, tablelist):
         # Get default threshold values
         change_threshold = 3.0
         trend_threshold = 5.0
@@ -244,95 +320,54 @@ class Report(models.Model):
         if hasattr(settings, 'TREND_THRESHOLD') and settings.TREND_THRESHOLD:
             trend_threshold = settings.TREND_THRESHOLD
 
-        # Fetch big changes for each unit type and each benchmark
-        for units in tablelist:
-            # Total change
-            val = units['totals']['change']
+        max_change = HistoricalValue()
+        max_trend = HistoricalValue()
+        average_change = HistoricalValue()
+        average_trend = HistoricalValue()
+
+        # Fetch big changes for each quantity and each benchmark
+        for quantity in tablelist:
+            quantity_name = quantity['units_title'].lower()
+            less_is_better = quantity['lessisbetter']
+
+            val = quantity['totals']['change']
             if val == "-":
                 continue
-            color = self.getcolorcode(val, units['lessisbetter'],
-                                      change_threshold)
-            if self.is_big_change(val, color, average_change, average_change_color):
-                # Do update biggest total change
-                average_change = val
-                average_change_units = units['units_title']
-                average_change_color = color
-            # Total trend
-            val = units['totals']['trend']
+            color = self.getcolorcode(val, less_is_better, change_threshold)
+            average_change.update_if_less_important_than(val, color,
+                                                         quantity_name)
+
+            val = quantity['totals']['trend']
             if val != "-":
-                color = self.getcolorcode(val, units['lessisbetter'],
-                                          trend_threshold)
-                if self.is_big_change(val, color, average_trend, average_trend_color):
-                    # Do update biggest total trend change
-                    average_trend = val
-                    average_trend_units = units['units_title']
-                    average_trend_color = color
-            for row in units['rows']:
+                color = self.getcolorcode(val, less_is_better, trend_threshold)
+                average_trend.update_if_less_important_than(val, color,
+                                                            quantity_name)
+
+            for row in quantity['rows']:
+                benchmark_name = row['bench_name']
                 # Single change
                 val = row['change']
                 if val == "-":
                     continue
-                color = self.getcolorcode(val, units['lessisbetter'],
+                color = self.getcolorcode(val, less_is_better,
                                           change_threshold)
-                if self.is_big_change(val, color, max_change, max_change_color):
-                    # Do update biggest single change
-                    max_change = val
-                    max_change_ben = row['bench_name']
-                    max_change_color = color
+                max_change.update_if_less_important_than(val, color,
+                                                         benchmark_name)
                 # Single trend
                 val = row['trend']
                 if val == "-":
                     continue
-                color = self.getcolorcode(val, units['lessisbetter'], trend_threshold)
-                if self.is_big_change(val, color, max_trend, max_trend_color):
-                    # Do update biggest single trend change
-                    max_trend = val
-                    max_trend_ben = row['bench_name']
-                    max_trend_color = color
-        # Reinitialize
-        self.summary = ""
-        self.colorcode = "none"
+                color = self.getcolorcode(val, less_is_better, trend_threshold)
+                max_trend.update_if_less_important_than(val, color,
+                                                        benchmark_name)
+        return {'max_change': max_change,
+                'max_trend': max_trend,
+                'average_change': average_change,
+                'average_trend': average_trend}
 
-        # Save summary in order of priority
-        # (changes results before trends, averages before individual results)
-
-        # Average change
-        if average_change_color != "none":
-            self.summary = "Average %s %s" % (
-                average_change_units.lower(),
-                self.updown(average_change))
-            self.colorcode = average_change_color
-
-        # Single benchmark change
-        elif max_change_color != "none":
-            self.summary = "%s %s" % (
-                max_change_ben,
-                self.updown(max_change))
-            self.colorcode = max_change_color
-
-        # Average trend
-        elif average_trend_color != "none":
-            self.summary = "Average %s trend %s" % (
-                average_trend_units.lower(),
-                self.updown(average_trend))
-            # use lighter colors for trend results:
-            if average_trend_color == "red":
-                self.colorcode = "yellow"
-            elif average_trend_color == "green":
-                self.colorcode = "lightgreen"
-
-        # Single benchmark trend
-        elif max_trend_color != "none":
-            self.summary = "%s trend %s" % (
-                max_trend_ben,
-                self.updown(max_trend))
-            # use lighter colors for trend results:
-            if max_trend_color == "red":
-                self.colorcode = "yellow"
-            elif max_trend_color == "green":
-                self.colorcode = "lightgreen"
-
-        super(Report, self).save(*args, **kwargs)
+    def update_summary(self, format, hist_value):
+        self.summary = format.format(hist_value.name,
+                                     self.updown(hist_value.val))
 
     def updown(self, val):
         """Substitutes plus/minus with up/down"""
@@ -343,16 +378,12 @@ class Report(models.Model):
         else:
             return "%s %.1f%%" % (direction, aval)
 
-    def is_big_change(self, val, color, current_val, current_color):
-        if color == "red" and current_color != "red":
-            return True
-        elif color == "red" and abs(val) > abs(current_val):
-            return True
-        elif (color == "green" and current_color != "red" and
-                abs(val) > abs(current_val)):
-            return True
-        else:
-            return False
+    def update_by_trend_color(self, color):
+        # use lighter colors for trend results:
+        if color == "red":
+            self.colorcode = "yellow"
+        elif color == "green":
+            self.colorcode = "lightgreen"
 
     def getcolorcode(self, val, lessisbetter, threshold):
         if lessisbetter:
@@ -363,6 +394,20 @@ class Report(models.Model):
             return "green"
         else:
             return "none"
+
+    def get_last_revisions(self, depth):
+        lastrevisions = []
+        try:
+            lastrevisions = Revision.objects.filter(
+                branch=self.revision.branch
+            ).filter(
+                date__lte=self.revision.date
+            ).order_by('-date')[:depth + 1]
+            # Same as self.revision unless in a different branch
+        except Exception as e:
+            logger.warning("Exception while getting results: %s", e,
+                           exc_info=True)
+        return lastrevisions
 
     def get_changes_table(self, trend_depth=10, force_save=False):
         # Determine whether required trend value is the default one
@@ -375,16 +420,10 @@ class Report(models.Model):
             return self._get_tablecache()
         # Otherwise generate a new changes table
         # Get latest revisions for this branch (which also sets the project)
-        try:
-            lastrevisions = Revision.objects.filter(
-                branch=self.revision.branch
-            ).filter(
-                date__lte=self.revision.date
-            ).order_by('-date')[:trend_depth + 1]
-            # Same as self.revision unless in a different branch
-            lastrevision = lastrevisions[0]
-        except:
+        lastrevisions = self.get_last_revisions(trend_depth)
+        if not lastrevisions:
             return []
+
         change_list = []
         pastrevisions = []
         if len(lastrevisions) > 1:
@@ -399,7 +438,7 @@ class Report(models.Model):
             pastrevisions = lastrevisions[trend_depth - 2:trend_depth + 1]
 
         result_list = Result.objects.filter(
-            revision=lastrevision
+            revision=lastrevisions[0]
         ).filter(
             environment=self.environment
         ).filter(
@@ -444,7 +483,7 @@ class Report(models.Model):
                     val_max = "-"
 
                 # Calculate percentage change relative to previous result
-                result = resobj.value
+                result = max(resobj.value, 0)
                 change = "-"
                 if len(change_list):
                     c = change_list.filter(benchmark=bench)
@@ -468,23 +507,23 @@ class Report(models.Model):
                 # Calculate trend:
                 # percentage change relative to average of 3 previous results
                 # Calculate past average
-                average = 0
-                averagecount = 0
+                result_sum = 0
+                num_past_results = 0
                 if len(pastrevisions):
                     for rev in pastrevisions:
-                        past_rev = Result.objects.filter(
+                        past_result = Result.objects.filter(
                             revision=rev
                         ).filter(
                             environment=self.environment
                         ).filter(
                             executable=self.executable
                         ).filter(benchmark=bench)
-                        if past_rev.count():
-                            average += past_rev[0].value
-                            averagecount += 1
+                        if past_result.count():
+                            result_sum += past_result[0].value
+                            num_past_results += 1
                 trend = "-"
-                if average:
-                    average = average / averagecount
+                if result_sum:
+                    average = result_sum / num_past_results
                     trend = (result - average) * 100 / average
                     totals['trend'].append(result / average)
 

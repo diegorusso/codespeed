@@ -69,7 +69,7 @@ function permalinkToChanges(commitid, executableid, environment) {
 function OnMarkerClickHandler(ev, gridpos, datapos, neighbor, plot) {
   if($("input[name='benchmark']:checked").val() === "grid") { return false; }
   if (neighbor) {
-    var commitid = neighbor.data[neighbor.data.length-2];
+    var commitid = neighbor.data[neighbor.data.length-3];
     // Get executable ID from the seriesindex array
     var executableid = seriesindex[neighbor.seriesIndex];
     var environment = $("input[name='environments']:checked").val();
@@ -82,23 +82,33 @@ function getHighlighterConfig(median) {
     return {
       show: true,
       tooltipLocation: 'nw',
-      yvalues: 7,
-      formatString:'<table class="jqplot-highlighter">    <tr><td>date:</td><td>%s</td></tr> <tr><td>median:</td><td>%s</td></tr> <tr><td>max:</td><td>%s</td></tr> <tr><td>Q3:</td><td>%s</td></tr> <tr><td>Q1:</td><td>%s</td></tr> <tr><td>min:</td><td>%s</td></tr> <tr><td>commit:</td><td>%s</td></tr></table>'
+      yvalues: 8,
+      formatString:'<table class="jqplot-highlighter">    <tr><td>date:</td><td>%s</td></tr> <tr><td>median:</td><td>%s</td></tr> <tr><td>max:</td><td>%s</td></tr> <tr><td>Q3:</td><td>%s</td></tr> <tr><td>Q1:</td><td>%s</td></tr> <tr><td>min:</td><td>%s</td></tr> <tr><td>commit:</td><td>%s</td></tr><tr><td>tag:</td><td>%s</td></tr></table>'
     };
   } else {
     return {
       show: true,
       tooltipLocation: 'nw',
-      yvalues: 4,
-      formatString:'<table class="jqplot-highlighter">    <tr><td>date:</td><td>%s</td></tr> <tr><td>result:</td><td>%s</td></tr> <tr><td>std dev:</td><td>%s</td></tr> <tr><td>commit:</td><td>%s</td></tr></table>'
+      yvalues: 5,
+      formatString:'<table class="jqplot-highlighter">    <tr><td>date:</td><td>%s</td></tr> <tr><td>result:</td><td>%s</td></tr> <tr><td>std dev:</td><td>%s</td></tr> <tr><td>commit:</td><td>%s</td></tr><tr><td>tag:</td><td>%s</td></tr></table>'
     };
   }
+}
+
+function determineSignificantDigits(value, digits) {
+  var val = Math.abs(value);
+
+  while (val < 1) {
+    val *= 10;
+    digits++;
+  }
+  return digits;
 }
 
 function renderPlot(data) {
   var plotdata = [],
       series = [],
-      lastvalues = [];//hopefully the smallest values for determining significant digits.
+      smallestValue = Number.MAX_SAFE_INTEGER; // hopefully the smallest values for determining significant digits.
   seriesindex = [];
   var hiddenSeries = 0;
   var median = data['data_type'] === 'M';
@@ -154,17 +164,17 @@ function renderPlot(data) {
       series.push(seriesConfig);
       seriesindex.push(exe_id);
       plotdata.push(data.branches[branch][exe_id]);
-      lastvalues.push(data.branches[branch][exe_id][0][1]);
-    }
-    //determine significant digits
-    var digits = 2;
-    var value = Math.min.apply( Math, lastvalues );
-    if (value !== 0) {
-      while( value < 1 ) {
-        value *= 10;
-        digits++;
+
+      // determine smallest non-negative value in lastvalues
+      // (missing values can be represented as -1)
+      var val = data.branches[branch][exe_id][0][1];
+      if (val > 0 && val < smallestValue) {
+        smallestValue = val;
       }
     }
+
+    var digits = determineSignificantDigits(smallestValue, 2);
+
     $("#plotgrid").html('<div id="plot"></div><div id="plotdescription"></div>');
 
     if (data.benchmark_description) {
@@ -281,7 +291,9 @@ function render(data) {
   $("#revisions").attr("disabled", false);
   $("#equidistant").attr("disabled", false);
   $("span.options.median").css("display", "none");
-  $("#plotgrid").html("");
+  if (data.first !== false) {
+    $("#plotgrid").html("");
+  }
   if(data.error !== "None") {
     var h = $("#content").height();//get height for error message
     $("#plotgrid").html(getLoadText(data.error, h));
@@ -289,10 +301,16 @@ function render(data) {
   } else if ($("input[name='benchmark']:checked").val() === "show_none") {
     var h = $("#content").height();//get height for error message
     $("#plotgrid").html(getLoadText("Please select a benchmark on the left", h));
-  } else if (data.timelines.length === 0) {
+  } else if (data.timelines.length === 0 && data.first !== false) {
     var h = $("#content").height();//get height for error message
     $("#plotgrid").html(getLoadText("No data available", h));
-  } else if ($("input[name='benchmark']:checked").val() === "grid"){
+  } else if ($("input[name='benchmark']:checked").val() === "grid") {
+    if (data.nextBenchmarks !== false) {
+      var config = getConfiguration();
+      config.nextBenchmarks = data.nextBenchmarks;
+      $.getJSON("json/", config, render);
+    }
+
     //Render Grid of plots
     $("#revisions").attr("disabled",true);
     $("#equidistant").attr("disabled", true);
